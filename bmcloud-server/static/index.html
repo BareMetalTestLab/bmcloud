@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="utf-8">
+    <title>bmcloud — мои устройства</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <h1>bmcloud</h1>
+
+    <section id="auth">
+        <h2>Вход</h2>
+        <p><input id="login" placeholder="логин (только для регистрации)" size="30"></p>
+        <p><input id="email" placeholder="email" size="30"></p>
+        <p><input id="password" type="password" placeholder="пароль" size="30"></p>
+        <p>
+            <button id="login-btn">Войти</button>
+            <button id="register-btn">Зарегистрироваться</button>
+        </p>
+        <p id="auth-msg"></p>
+    </section>
+
+    <section id="panel" hidden>
+        <h2>Мои устройства</h2>
+        <p>
+            <button id="refresh-btn">Обновить</button>
+            <button id="logout-btn">Выйти</button>
+        </p>
+        <p id="msg"></p>
+        <table id="devices" hidden>
+            <thead>
+                <tr>
+                    <th>id</th>
+                    <th>имя</th>
+                    <th>состояние</th>
+                    <th>обновлено</th>
+                </tr>
+            </thead>
+            <tbody id="devices-body"></tbody>
+        </table>
+    </section>
+    <script src="app.js"></script>
+</body>
+
+</html>

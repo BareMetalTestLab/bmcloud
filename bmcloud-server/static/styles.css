@@ -1,0 +1,32 @@
+body {
+    font-family: system-ui, sans-serif;
+    margin: 2rem;
+}
+
+input {
+    padding: 4px 8px;
+}
+
+button {
+    padding: 4px 12px;
+    cursor: pointer;
+}
+
+table {
+    border-collapse: collapse;
+}
+
+td, th {
+    border: 1px solid #ccc;
+    padding: 6px 12px;
+    text-align: left;
+}
+
+.online  { color: green; font-weight: bold; }
+.offline { color: gray; }
+.error   { color: red; font-weight: bold; }
+.busy    { color: orange; }
+
+#msg { color: #666; min-height: 1.2em; }
+#auth-msg { min-height: 1.2em; }
+#auth-msg.err { color: red; }
