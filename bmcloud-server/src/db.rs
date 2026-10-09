@@ -38,12 +38,19 @@ fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
             user_id INTEGER NOT NULL REFERENCES users(id),
             name TEXT NOT NULL,
             token TEXT NOT NULL UNIQUE,
-            created_at INTEGER NOT NULL,
+            created_at INTEGER NOT NULL
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS device_state (
+            device_id INTEGER PRIMARY KEY REFERENCES devices(id),
             state TEXT NOT NULL CHECK (state IN ('offline','online','error','busy')),
             updated_at INTEGER NOT NULL
         )",
         [],
     )?;
-
+    
     Ok(())
 }

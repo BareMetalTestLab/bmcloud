@@ -87,9 +87,10 @@ fn current_device(state: &AppState, headers: &HeaderMap) -> Result<AuthDevice, A
     let token = extract_bearer_token(headers)?;
 
     match db.query_row(
-        "SELECT id, name, state, updated_at, user_id
-             FROM devices
-             WHERE token = ?1",
+        "SELECT d.id, d.name, COALESCE(s.state, 'offline'), COALESCE(s.updated_at, d.created_at), d.user_id
+        FROM devices d
+        LEFT JOIN device_state s ON s.device_id = d.id
+        WHERE d.token = ?1",
         params![token],
         |row| {
             Ok(AuthDevice {
@@ -243,11 +244,10 @@ pub async fn create_device(
 
     let db = state.db.lock().unwrap();
     let now = unix_now();
-    let initial_state = "offline".to_string();
 
     db.execute(
-        "INSERT INTO devices (user_id, name, token, created_at, state, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![user.id, name, token, now, initial_state, now],
+        "INSERT INTO devices (user_id, name, token, created_at) VALUES (?1, ?2, ?3, ?4)",
+        params![user.id, name, token, now],
     )?;
 
     Ok((
@@ -256,7 +256,7 @@ pub async fn create_device(
             device: DeviceResponse {
                 id: db.last_insert_rowid(),
                 name,
-                state: initial_state,
+                state: "offline".to_string(),
                 updated_at: now,
             },
             token,
@@ -290,10 +290,11 @@ pub async fn list_devices(
     let db = state.db.lock().unwrap();
 
     let mut stmt = db.prepare(
-        "SELECT id, name, state, updated_at 
-    FROM devices
-    WHERE user_id = ?1 
-    ORDER BY id",
+        "SELECT d.id, d.name, COALESCE(s.state, 'offline'), COALESCE(s.updated_at, d.created_at)
+        FROM devices d
+        LEFT JOIN device_state s ON s.device_id = d.id
+        WHERE d.user_id = ?1
+        ORDER BY d.id",
     )?;
 
     let devices = stmt
@@ -333,8 +334,12 @@ pub async fn device_update_state(
         return Err(AppError::InvalidDeviceState);
     }
     let db = state.db.lock().unwrap();
+
     db.execute(
-        "UPDATE devices SET state = ?2, updated_at = ?3 WHERE id = ?1",
+        "INSERT INTO device_state (device_id, state, updated_at)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(device_id) DO UPDATE
+         SET state = excluded.state, updated_at = excluded.updated_at",
         params![device.info.id, new_state, unix_now()],
     )?;
 
@@ -349,9 +354,10 @@ pub async fn get_device_state(
     let db = state.db.lock().unwrap();
 
     match db.query_row(
-        "SELECT name, state, updated_at
-             FROM devices
-             WHERE id = ?1 AND user_id = ?2",
+        "SELECT d.name, COALESCE(s.state, 'offline'), COALESCE(s.updated_at, d.created_at)
+        FROM devices d
+        LEFT JOIN device_state s ON s.device_id = d.id
+        WHERE d.id = ?1 AND d.user_id = ?2",
         params![device_id, user.id],
         |row| {
             Ok(DeviceResponse {
