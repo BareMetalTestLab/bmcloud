@@ -1,32 +1,108 @@
+/* bmcloud web frontend — dark theme (BMPLC palette) */
+
+* {
+    box-sizing: border-box;
+}
+
+:root {
+    --card: #16213e;
+    --accent: #e94560;
+    --fill: #0f3460;
+    --border: #444;
+    --muted: #aaa;
+    --text: #eee;
+}
+
 body {
+    margin: 0;
+    min-height: 100vh;
+    padding: 1.5rem;
+    background: #1a1a2e;
+    color: var(--text);
     font-family: system-ui, sans-serif;
-    margin: 2rem;
+}
+
+h1 {
+    margin: 0 0 1.5rem;
+    font-size: 2rem;
+}
+
+/* Auth and devices panel drawn as cards */
+section {
+    max-width: 720px;
+    margin-bottom: 1.5rem;
+    padding: 1.5rem 2rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+section h2 {
+    margin: 0 0 1rem;
+    font-size: 1.25rem;
 }
 
 input {
-    padding: 4px 8px;
+    padding: 0.5rem 0.75rem;
+    background: var(--fill);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+
+input::placeholder {
+    color: var(--muted);
+}
+
+input:focus {
+    outline: none;
+    border-color: #888;
 }
 
 button {
-    padding: 4px 12px;
+    padding: 0.5rem 1.25rem;
+    background: var(--fill);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.9rem;
     cursor: pointer;
 }
 
+button:hover {
+    background: #12386b;
+    border-color: #888;
+}
+
+button:active {
+    transform: scale(0.97);
+}
+
 table {
+    width: 100%;
     border-collapse: collapse;
+    font-size: 0.9rem;
 }
 
-td, th {
-    border: 1px solid #ccc;
-    padding: 6px 12px;
+th {
     text-align: left;
+    color: var(--muted);
+    font-weight: normal;
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid var(--border);
 }
 
-.online  { color: green; font-weight: bold; }
-.offline { color: gray; }
-.error   { color: red; font-weight: bold; }
-.busy    { color: orange; }
+td {
+    padding: 0.45rem 0.5rem;
+    text-align: left;
+    border-bottom: 1px solid #2a2a4a;
+}
 
-#msg { color: #666; min-height: 1.2em; }
+.online  { color: #2ecc71; font-weight: bold; }
+.offline { color: var(--muted); }
+.error   { color: var(--accent); font-weight: bold; }
+.busy    { color: #f39c12; }
+
+#msg { color: var(--muted); min-height: 1.2em; }
 #auth-msg { min-height: 1.2em; }
-#auth-msg.err { color: red; }
+#auth-msg.err { color: var(--accent); }

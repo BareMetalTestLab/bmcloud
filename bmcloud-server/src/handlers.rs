@@ -374,6 +374,33 @@ pub async fn get_device_state(
     }
 }
 
+pub async fn rename_device(
+    State(state): State<AppState>,
+    Path(device_id): Path<i64>,
+    user: AuthUser,
+    Json(payload): Json<CreateDeviceRequest>,
+) -> Result<StatusCode, AppError> {
+    let new_name = payload.name.trim().to_string();
+    if new_name.is_empty() {
+        return Err(AppError::InvalidDeviceName);
+    }
+
+    let db = state.db.lock().unwrap();
+
+    let renamed = db.execute(
+        "UPDATE devices 
+            SET name = ?1
+            WHERE id = ?2 AND user_id = ?3",
+        params![new_name, device_id, user.id],
+    )?;
+
+    if renamed == 0 {
+        return Err(AppError::NotFound);
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

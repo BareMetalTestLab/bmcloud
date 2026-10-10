@@ -11,7 +11,7 @@ const COUNT: usize = 10;
 async fn main() {
     let client = reqwest::Client::new();
 
-    // 1. Пользователь под ферму: 409 = «уже есть» — это не ошибка
+    // 1. User with farm: 409 = "already exist" — it's not error
     let resp = client
         .post(format!("{BASE}/register"))
         .json(&json!({ "login": "farmer", "email": EMAIL, "password": PASSWORD }))
@@ -33,7 +33,7 @@ async fn main() {
     let body: serde_json::Value = resp.json().await.unwrap();
     let session = body["token"].as_str().unwrap().to_string();
 
-    // 2. Создаём устройства и забираем их токены
+    // 2. Create the devices and take its tokens
     let mut tokens = Vec::new();
     for i in 1..=COUNT {
         let resp = client
@@ -49,13 +49,12 @@ async fn main() {
     }
     println!("создано устройств: {}", tokens.len());
 
-    // 3. Каждое устройство — отдельная задача
+    // 3. Each device is separate task
     for (i, token) in tokens.into_iter().enumerate() {
         let client = client.clone();
         tokio::spawn(async move {
-            // "online" дважды — чтобы встречался чаще остальных
             let states = ["online", "busy", "online", "error", "offline"];
-            let period = 2 + (i % 5) as u64; // у каждого свой ритм: 2–6 секунд
+            let period = 2 + (i % 5) as u64;
             let mut ticker = interval(Duration::from_secs(period));
             loop {
                 ticker.tick().await;
@@ -70,7 +69,7 @@ async fn main() {
                     Ok(r) if r.status() == 204 => {}
                     other => {
                         eprintln!(
-                            "esp32-sim-{:02}: доклад не прошёл ({:?}), устройство выключается",
+                            "esp32-sim-{:02}: failed post ({:?}), device is stopping",
                             i + 1, other
                         );
                         return;
@@ -80,9 +79,9 @@ async fn main() {
         });
     }
 
-    println!("ферма запущена: {COUNT} устройств докладывают каждые 2–6 с");
-    println!("открой http://localhost:3000 и войди как {EMAIL} / {PASSWORD}");
-    println!("Ctrl+C — остановить");
+    println!("farm is running: {COUNT} devices respond every 2–6 s");
+    println!("open http://localhost:3000 and login {EMAIL} / {PASSWORD}");
+    println!("Ctrl+C — to stop");
     tokio::signal::ctrl_c().await.unwrap();
-    println!("ферма остановлена");
+    println!("farm has been stopped");
 }

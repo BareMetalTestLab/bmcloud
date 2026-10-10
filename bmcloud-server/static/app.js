@@ -47,7 +47,7 @@ async function doRegister() {
         return;
     }
     const err = await resp.json().catch(() => null);
-    authError(err ? err.error : 'регистрация не удалась');
+    authError(err ? err.error : 'registration failed');
 }
 
 async function doLogin() {
@@ -58,7 +58,7 @@ async function doLogin() {
     }, false);
     if (resp.status !== 200) {
         const err = await resp.json().catch(() => null);
-        authError(err ? err.error : 'не удалось войти');
+        authError(err ? err.error : 'log in failed');
         return;
     }
     const body = await resp.json();
@@ -66,11 +66,22 @@ async function doLogin() {
     enter();
 }
 
+let pollTimer = null;
+
+async function poll() {
+    try {
+        await load();
+    } catch (e) {
+        msg.textContent = 'server unreachable';
+    }
+    pollTimer = setTimeout(poll, 5000); // следующий — только после завершения этого
+}
+
 function enter() {
     passwordInput.value = '';
     authSection.hidden = true;
     panelSection.hidden = false;
-    load();
+    pollTimer = setTimeout(poll, 0)
 }
 
 async function doLogout() {
@@ -81,16 +92,19 @@ async function doLogout() {
     table.hidden = true;
     tbody.replaceChildren();
     msg.textContent = '';
+
+    clearTimeout(pollTimer);
+    pollTimer = null;
 }
 
 function timeAgo(unixSec) {
     const s = Math.floor(Date.now() / 1000) - unixSec;
-    if (s < 60) return 'только что';
+    if (s < 60) return 'just now';
     const m = Math.floor(s / 60);
-    if (m < 60) return m + ' мин назад';
+    if (m < 60) return m + ' min ago';
     const h = Math.floor(m / 60);
-    if (h < 24) return h + ' ч назад';
-    return Math.floor(h / 24) + ' дн назад';
+    if (h < 24) return h + ' h ago';
+    return Math.floor(h / 24) + ' days ago';
 }
 
 async function load() {
@@ -99,11 +113,11 @@ async function load() {
         localStorage.removeItem(TOKEN_KEY);
         authSection.hidden = false;
         panelSection.hidden = true;
-        authError('сессия истекла, войдите снова');
+        authError('the session has expired, log in again');
         return;
     }
     const devices = await resp.json();
-    msg.textContent = devices.length === 0 ? 'Устройств пока нет' : '';
+    msg.textContent = devices.length === 0 ? 'There are not devices yet' : '';
     table.hidden = false;
     tbody.replaceChildren();
     for (const d of devices) {
@@ -112,7 +126,7 @@ async function load() {
         const cells = [d.id, d.name, d.state, timeAgo(d.updated_at)];
         for (const value of cells) {
             const td = document.createElement('td');
-            td.textContent = value;   // ← только так: имена вводит человек
+            td.textContent = value;
             tr.appendChild(td);
         }
         tbody.appendChild(tr);
@@ -121,10 +135,9 @@ async function load() {
 
 document.getElementById('login-btn').addEventListener('click', doLogin);
 document.getElementById('register-btn').addEventListener('click', doRegister);
-document.getElementById('refresh-btn').addEventListener('click', load);
 document.getElementById('logout-btn').addEventListener('click', doLogout);
 
-// если токен уже сохранён — сразу входим
 if (token()) {
     enter();
 }
+

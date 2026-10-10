@@ -208,7 +208,7 @@ async fn root_returns_dashboard_html() {
         .unwrap_or_default()
         .starts_with("text/html"));
     let body = response.text().await.unwrap();
-    assert!(body.contains("Мои устройства"));
+    assert!(body.contains("My devices"));
     assert!(body.contains("app.js"));
 }
 
@@ -713,11 +713,127 @@ async fn empty_state_returns_400() {
         "invalid device state, expected offline|online|error|busy"
     );
 
-    // пробуем непустую, но недопустимую строку — фильтр не только на пустоту
     let response = client
         .post(format!("{base}/device/state"))
         .header("Authorization", format!("Bearer {device_token}"))
         .json(&json!({ "state": "sleeping" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn rename_returns_204() {
+    let base = spawn_app().await;
+
+    let client = reqwest::Client::new();
+
+    let token = register_and_login(&client, &base, "anna", "anna@mail.ru").await;
+
+    // A creates a device
+    let response = client
+        .post(format!("{base}/devices"))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&json!({ "name": "anna-esp32" }))
+        .send()
+        .await
+        .unwrap();
+    let body: serde_json::Value = response.json().await.unwrap();
+    let device_id = body["device"]["id"].as_i64().unwrap();
+    let device_token = body["token"].as_str().unwrap().to_string();
+
+    let response = client
+        .patch(format!("{base}/device/{device_id}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&json!({ "name": "anna-esp32-c5" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    let response = client
+        .get(format!("{base}/device/me"))
+        .header("Authorization", format!("Bearer {device_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["name"], "anna-esp32-c5");
+    assert!(body["id"].is_i64());
+}
+
+#[tokio::test]
+async fn rename_by_another_user_returns_401() {
+    let base = spawn_app().await;
+
+    let client = reqwest::Client::new();
+
+    let token = register_and_login(&client, &base, "anna", "anna@mail.ru").await;
+
+    // A creates a device
+    let response = client
+        .post(format!("{base}/devices"))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&json!({ "name": "anna-esp32" }))
+        .send()
+        .await
+        .unwrap();
+    let body: serde_json::Value = response.json().await.unwrap();
+    let device_id = body["device"]["id"].as_i64().unwrap();
+
+    let response = client
+        .patch(format!("{base}/device/{device_id}"))
+        .header("Authorization", format!("Bearer another-token"))
+        .json(&json!({ "name": "anna-esp32-c5" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn rename_unknown_device_returns_400() {
+    let base = spawn_app().await;
+
+    let client = reqwest::Client::new();
+
+    let token = register_and_login(&client, &base, "anna", "anna@mail.ru").await;
+
+    let response = client
+        .patch(format!("{base}/device/7777777"))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&json!({ "name": "anna-esp3" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn rename_with_empty_name_returns_400() {
+    let base = spawn_app().await;
+
+    let client = reqwest::Client::new();
+
+    let token = register_and_login(&client, &base, "anna", "anna@mail.ru").await;
+
+    // A creates a device
+    let response = client
+        .post(format!("{base}/devices"))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&json!({ "name": "anna-esp32" }))
+        .send()
+        .await
+        .unwrap();
+    let body: serde_json::Value = response.json().await.unwrap();
+    let device_id = body["device"]["id"].as_i64().unwrap();
+
+    let response = client
+        .patch(format!("{base}/device/{device_id}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&json!({ "name": "     " }))
         .send()
         .await
         .unwrap();

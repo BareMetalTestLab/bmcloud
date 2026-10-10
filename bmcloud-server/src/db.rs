@@ -44,6 +44,11 @@ fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
     )?;
 
     conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id)",
+        [],
+    )?;
+
+    conn.execute(
         "CREATE TABLE IF NOT EXISTS device_state (
             device_id INTEGER PRIMARY KEY REFERENCES devices(id),
             state TEXT NOT NULL CHECK (state IN ('offline','online','error','busy')),
@@ -51,6 +56,6 @@ fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
         )",
         [],
     )?;
-    
+
     Ok(())
 }
