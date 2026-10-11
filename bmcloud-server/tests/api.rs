@@ -841,3 +841,22 @@ async fn rename_with_empty_name_returns_400() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn cookie_logout_works_without_bearer() {
+    let base = spawn_app().await;
+    let client = reqwest::Client::builder().cookie_store(true).build().unwrap();
+
+    client.post(format!("{base}/register"))
+        .json(&json!({ "login": "anna", "email": "anna@mail.ru", "password": "SuperSecret1!" }))
+        .send().await.unwrap();
+    client.post(format!("{base}/login"))
+        .json(&json!({ "email": "anna@mail.ru", "password": "SuperSecret1!" }))
+        .send().await.unwrap();
+
+    let resp = client.post(format!("{base}/logout")).send().await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    let resp = client.get(format!("{base}/devices")).send().await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}

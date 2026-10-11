@@ -12,6 +12,6 @@ serde = { version = "1.0.229", features = ["derive"] }
 tokio = { version = "1.53.1", features = ["full"] }
 uuid = { version = "1.27.0", features = ["v4"] }
 tower-http = { version = "0.6", features = ["fs"] }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "cookies"] }
 serde_json = "1"
 rand = "0.10.3"

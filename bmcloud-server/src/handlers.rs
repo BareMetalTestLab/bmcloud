@@ -243,7 +243,7 @@ pub async fn logout(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<(HeaderMap, StatusCode), AppError> {
-    let token = extract_bearer_token(&headers)?;
+    let token = extract_session_token(&headers)?;
 
     let db = state.db.lock().unwrap();
 
