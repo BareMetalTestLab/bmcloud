@@ -13,6 +13,8 @@ pub fn init_memory() -> rusqlite::Result<Connection> {
 }
 
 fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
+    conn.pragma_update(None, "foreign_keys", "ON")?;
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,7 +28,7 @@ fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL REFERENCES users(id),
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             created_at INTEGER NOT NULL
         )",
         [],
@@ -35,7 +37,7 @@ fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS devices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL REFERENCES users(id),
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             name TEXT NOT NULL,
             token TEXT NOT NULL UNIQUE,
             created_at INTEGER NOT NULL
@@ -50,7 +52,7 @@ fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS device_state (
-            device_id INTEGER PRIMARY KEY REFERENCES devices(id),
+            device_id INTEGER PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
             state TEXT NOT NULL CHECK (state IN ('offline','online','error','busy')),
             updated_at INTEGER NOT NULL
         )",

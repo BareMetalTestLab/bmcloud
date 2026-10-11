@@ -67,6 +67,7 @@ async function doLogin() {
 }
 
 let pollTimer = null;
+let editing = null; // id устройства, имя которого сейчас редактируется
 
 async function poll() {
     try {
@@ -108,6 +109,7 @@ function timeAgo(unixSec) {
 }
 
 async function load() {
+    if (editing !== null) return; // не перерисовываем таблицу, пока идёт переименование
     const resp = await api('/devices', 'GET');
     if (resp.status === 401) {
         localStorage.removeItem(TOKEN_KEY);
@@ -123,13 +125,97 @@ async function load() {
     for (const d of devices) {
         const tr = document.createElement('tr');
         tr.className = d.state;
-        const cells = [d.id, d.name, d.state, timeAgo(d.updated_at)];
-        for (const value of cells) {
+
+        const idTd = document.createElement('td');
+        idTd.textContent = d.id;
+        tr.appendChild(idTd);
+
+        const nameTd = document.createElement('td');
+        nameTd.appendChild(makeNameSpan(d));
+        tr.appendChild(nameTd);
+
+        for (const value of [d.state, timeAgo(d.updated_at)]) {
             const td = document.createElement('td');
             td.textContent = value;
             tr.appendChild(td);
         }
+        const actions = document.createElement('td');
+        const del = document.createElement('button');
+        del.textContent = '✕';
+        del.title = 'delete device';
+        del.className = 'device-del';
+        del.addEventListener('click', () => deleteDevice(d.id, del));
+        actions.appendChild(del);
+        tr.appendChild(actions);
         tbody.appendChild(tr);
+    }
+}
+
+function makeNameSpan(d) {
+    const span = document.createElement('span');
+    span.className = 'device-name';
+    span.textContent = d.name;
+    span.title = 'click to rename';
+    span.addEventListener('click', () => startRename(d.id, d.name, span));
+    return span;
+}
+
+function startRename(id, oldName, span) {
+    if (editing !== null) return; // уже редактируем другое имя
+    editing = id;
+
+    const input = document.createElement('input');
+    input.className = 'device-name-input';
+    input.value = oldName;
+    span.replaceWith(input);
+    input.focus();
+    input.select();
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            input.blur(); // сохраняем
+        } else if (e.key === 'Escape') {
+            input.value = oldName; // blur увидит старое имя и не отправит запрос
+            input.blur();
+        }
+    });
+    input.addEventListener('blur', () => finishRename(id, oldName, input));
+}
+
+function finishRename(id, oldName, input) {
+    editing = null;
+    const newName = input.value.trim();
+    // пустое имя или без изменений — просто возвращаем текст, запрос не нужен
+    if (newName === '' || newName === oldName) {
+        input.replaceWith(makeNameSpan({ id, name: oldName }));
+        return;
+    }
+    // оптимистично показываем новое имя, запрос уходит параллельно
+    input.replaceWith(makeNameSpan({ id, name: newName }));
+    api('/device/' + id, 'PATCH', { name: newName })
+        .then((resp) => {
+            msg.textContent = resp.status === 204 ? '' : 'failed to rename device ' + id;
+        })
+        .catch(() => {
+            msg.textContent = 'server unreachable';
+        });
+}
+
+async function deleteDevice(id, btn) {
+    btn.disabled = true;
+    try {
+        const resp = await api('/device/' + id, 'DELETE');
+        if (resp.status === 204) {
+            msg.textContent = '';
+            await load();
+            return;
+        }
+        msg.textContent = 'failed to delete device ' + id;
+    } catch (e) {
+        msg.textContent = 'server unreachable';
+    } finally {
+        btn.disabled = false;
     }
 }
 
