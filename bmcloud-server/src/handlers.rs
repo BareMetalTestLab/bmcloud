@@ -13,7 +13,7 @@ use axum::{
     Json,
     extract::{FromRequestParts, Path, State},
     http::request::Parts,
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header::SET_COOKIE},
 };
 
 use argon2::{
@@ -57,7 +57,7 @@ fn unix_now() -> i64 {
 fn current_user(state: &AppState, headers: &HeaderMap) -> Result<AuthUser, AppError> {
     let db = state.db.lock().unwrap();
 
-    let token = extract_bearer_token(headers)?;
+    let token = extract_session_token(headers)?;
 
     match db.query_row(
         "SELECT u.id, u.login, u.email
@@ -110,6 +110,27 @@ fn current_device(state: &AppState, headers: &HeaderMap) -> Result<AuthDevice, A
         }
         Err(e) => return Err(e.into()),
     };
+}
+
+const SESSION_COOKIE: &str = "bmcloud_session";
+const SESSION_MAX_AGE: i64 = 7 * 24 * 60 * 60;
+
+fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    let cookies = headers.get("Cookie")?.to_str().ok()?;
+    for pair in cookies.split(';') {
+        let pair = pair.trim();
+        if let Some(value) = pair.strip_prefix(&format!("{name}=")) {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
+fn extract_session_token(headers: &HeaderMap) -> Result<String, AppError> {
+    if let Ok(token) = extract_bearer_token(headers) {
+        return Ok(token);
+    }
+    cookie_value(headers, SESSION_COOKIE).ok_or(AppError::Unauthorized)
 }
 
 fn extract_bearer_token(headers: &HeaderMap) -> Result<String, AppError> {
@@ -166,7 +187,7 @@ pub async fn register(
 pub async fn login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
-) -> Result<Json<LoginResponse>, AppError> {
+) -> Result<(HeaderMap, Json<LoginResponse>), AppError> {
     let db = state.db.lock().unwrap();
 
     let (user, password_hash): (_, String) = match db.query_row(
@@ -203,13 +224,19 @@ pub async fn login(
         params![token, user.id, unix_now()],
     )?;
 
-    Ok(Json(LoginResponse { user, token }))
+    let cookie = format!(
+        "{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_MAX_AGE}"
+    );
+    let mut headers = HeaderMap::new();
+    headers.insert(SET_COOKIE, HeaderValue::from_str(&cookie).unwrap());
+
+    Ok((headers, Json(LoginResponse { user, token })))
 }
 
 pub async fn logout(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<StatusCode, AppError> {
+) -> Result<(HeaderMap, StatusCode), AppError> {
     let token = extract_bearer_token(&headers)?;
 
     let db = state.db.lock().unwrap();
@@ -219,7 +246,16 @@ pub async fn logout(
         return Err(AppError::Unauthorized);
     }
 
-    Ok(StatusCode::NO_CONTENT)
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(
+        SET_COOKIE,
+        HeaderValue::from_str(&format!(
+            "{SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+        ))
+        .unwrap(),
+    );
+
+    Ok((response_headers, StatusCode::NO_CONTENT))
 }
 
 pub async fn me(user: AuthUser) -> Json<UserResponse> {

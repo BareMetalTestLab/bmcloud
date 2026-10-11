@@ -1,5 +1,3 @@
-const TOKEN_KEY = 'bmcloud_token';
-
 const authSection = document.getElementById('auth');
 const panelSection = document.getElementById('panel');
 const loginInput = document.getElementById('login');
@@ -10,14 +8,9 @@ const msg = document.getElementById('msg');
 const table = document.getElementById('devices');
 const tbody = document.getElementById('devices-body');
 
-function token() {
-    return localStorage.getItem(TOKEN_KEY) ?? '';
-}
-
-async function api(path, method, body, auth = true) {
+async function api(path, method, body) {
     const headers = {};
     if (body !== undefined) headers['Content-Type'] = 'application/json';
-    if (auth) headers['Authorization'] = 'Bearer ' + token();
     return fetch(path, {
         method,
         headers,
@@ -61,8 +54,6 @@ async function doLogin() {
         authError(err ? err.error : 'log in failed');
         return;
     }
-    const body = await resp.json();
-    localStorage.setItem(TOKEN_KEY, body.token);
     enter();
 }
 
@@ -87,7 +78,6 @@ function enter() {
 
 async function doLogout() {
     await api('/logout', 'POST');
-    localStorage.removeItem(TOKEN_KEY);
     authSection.hidden = false;
     panelSection.hidden = true;
     table.hidden = true;
@@ -109,10 +99,9 @@ function timeAgo(unixSec) {
 }
 
 async function load() {
-    if (editing !== null) return; // не перерисовываем таблицу, пока идёт переименование
+    if (editing !== null) return; // no update devive page while renaming
     const resp = await api('/devices', 'GET');
     if (resp.status === 401) {
-        localStorage.removeItem(TOKEN_KEY);
         authSection.hidden = false;
         panelSection.hidden = true;
         authError('the session has expired, log in again');
@@ -223,7 +212,12 @@ document.getElementById('login-btn').addEventListener('click', doLogin);
 document.getElementById('register-btn').addEventListener('click', doRegister);
 document.getElementById('logout-btn').addEventListener('click', doLogout);
 
-if (token()) {
-    enter();
+async function init() {
+    const resp = await api('/devices', 'GET');
+    if (resp.status === 200) {
+        authSection.hidden = true;
+        panelSection.hidden = false;
+    }
+    load();
 }
-
+init();
