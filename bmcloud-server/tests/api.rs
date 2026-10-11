@@ -201,12 +201,14 @@ async fn root_returns_dashboard_html() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    assert!(response
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default()
-        .starts_with("text/html"));
+    assert!(
+        response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .starts_with("text/html")
+    );
     let body = response.text().await.unwrap();
     assert!(body.contains("My devices"));
     assert!(body.contains("app.js"));
@@ -724,7 +726,7 @@ async fn empty_state_returns_400() {
 }
 
 #[tokio::test]
-async fn rename_returns_204() {
+async fn rename_returns_204_and_device_sees_new_name() {
     let base = spawn_app().await;
 
     let client = reqwest::Client::new();
@@ -794,7 +796,7 @@ async fn rename_by_another_user_returns_401() {
 }
 
 #[tokio::test]
-async fn rename_unknown_device_returns_400() {
+async fn rename_unknown_device_returns_404() {
     let base = spawn_app().await;
 
     let client = reqwest::Client::new();

@@ -214,10 +214,6 @@ document.getElementById('logout-btn').addEventListener('click', doLogout);
 
 async function init() {
     const resp = await api('/devices', 'GET');
-    if (resp.status === 200) {
-        authSection.hidden = true;
-        panelSection.hidden = false;
-    }
-    load();
+    if (resp.status === 200) enter();
 }
 init();

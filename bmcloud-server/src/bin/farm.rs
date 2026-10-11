@@ -1,6 +1,6 @@
-use rand::{rng, RngExt};
+use rand::{RngExt, rng};
 use serde_json::json;
-use tokio::time::{interval, Duration};
+use tokio::time::{Duration, interval};
 
 const BASE: &str = "http://localhost:3000";
 const EMAIL: &str = "farmer@bmcloud.local";
@@ -70,7 +70,8 @@ async fn main() {
                     other => {
                         eprintln!(
                             "esp32-sim-{:02}: failed post ({:?}), device is stopping",
-                            i + 1, other
+                            i + 1,
+                            other
                         );
                         return;
                     }

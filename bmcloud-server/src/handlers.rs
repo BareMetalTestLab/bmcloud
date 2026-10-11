@@ -63,8 +63,8 @@ fn current_user(state: &AppState, headers: &HeaderMap) -> Result<AuthUser, AppEr
         "SELECT u.id, u.login, u.email
              FROM sessions s
              JOIN users u ON u.id = s.user_id
-             WHERE s.token = ?1",
-        params![token],
+             WHERE s.token = ?1 AND s.created_at > ?2",
+        params![token, unix_now() - SESSION_MAX_AGE],
         |row| {
             Ok(AuthUser {
                 id: row.get(0)?,
@@ -218,10 +218,11 @@ pub async fn login(
         .map_err(|_| AppError::InvalidCredentials)?;
 
     let token = Uuid::new_v4().to_string();
+    let now = unix_now();
 
     db.execute(
         "INSERT INTO sessions (token, user_id, created_at) VALUES (?1, ?2, ?3)",
-        params![token, user.id, unix_now()],
+        params![token, user.id, now],
     )?;
 
     let cookie = format!(
@@ -229,6 +230,11 @@ pub async fn login(
     );
     let mut headers = HeaderMap::new();
     headers.insert(SET_COOKIE, HeaderValue::from_str(&cookie).unwrap());
+
+    db.execute(
+        "DELETE FROM sessions WHERE created_at <= ?1",
+        params![now - SESSION_MAX_AGE],
+    )?;
 
     Ok((headers, Json(LoginResponse { user, token })))
 }
@@ -442,6 +448,8 @@ mod tests {
     use super::*;
     use crate::db;
 
+    use axum::http::header::AUTHORIZATION;
+
     fn valid_request() -> RegisterRequest {
         RegisterRequest {
             login: "anna".to_string(),
@@ -516,5 +524,44 @@ mod tests {
 
         let second = register(State(state), Json(valid_request())).await;
         assert_eq!(second.unwrap_err(), AppError::EmailTaken);
+    }
+
+    #[tokio::test]
+    async fn old_session_returns_401() {
+        let state = AppState::new(db::init_memory().unwrap());
+
+        let reg = register(State(state.clone()), Json(valid_request())).await;
+        assert!(reg.is_ok());
+
+        let login_reg = login(
+            State(state.clone()),
+            Json(LoginRequest {
+                email: valid_request().email,
+                password: valid_request().password,
+            }),
+        )
+        .await
+        .unwrap();
+
+        let token = login_reg.1.0.token;
+        {
+            let db = state.db.lock().unwrap();
+
+            db.execute(
+                "UPDATE sessions SET created_at = ?1 WHERE token = ?2",
+                params![1, token],
+            )
+            .unwrap();
+        }
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+        );
+
+        assert_eq!(
+            current_user(&state, &headers).unwrap_err(),
+            AppError::Unauthorized
+        );
     }
 }

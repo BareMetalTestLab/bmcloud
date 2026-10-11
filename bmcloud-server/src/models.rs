@@ -28,6 +28,7 @@ pub struct LoginResponse {
     pub token: String,
 }
 
+#[derive(Debug)]
 pub struct AuthUser {
     pub id: i64,
     pub login: String,
