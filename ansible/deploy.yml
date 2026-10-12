@@ -1,0 +1,227 @@
+---
+# Deploy bmcloud-server: build on the target host itself (required because
+# ServeDir embeds CARGO_MANIFEST_DIR at compile time) and run it under
+# systemd as a dedicated system user behind nginx (HTTPS via certbot).
+#
+# Run from the ansible/ directory:
+#   ansible-playbook deploy.yml
+- name: Deploy bmcloud-server
+  hosts: bmcloud
+  become: true
+
+  vars:
+    app_user: bmcloud
+    app_root: /opt/bmcloud
+    # This path becomes CARGO_MANIFEST_DIR at build time. ServeDir resolves
+    # static files relative to it, so it must not change (unless lib.rs
+    # changes too).
+    app_dir: /opt/bmcloud/bmcloud-server
+    service_name: bmcloud
+    # server_name for nginx. Override in inventory ([bmcloud:vars]).
+    bmcloud_domain: bmcloud.example.com
+    # Also cover the www subdomain (SAN entry in the certificate).
+    # E-mail for Let's Encrypt expiry notices.
+    certbot_email: admin@example.com
+
+  tasks:
+    - name: Install build and runtime dependencies
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - gcc          # C compiler for bundled SQLite (rusqlite)
+          - libc6-dev
+          - rsync
+          - nginx
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Create system user
+      ansible.builtin.user:
+        name: "{{ app_user }}"
+        system: true
+        create_home: true
+        home: "{{ app_root }}"
+        shell: /usr/sbin/nologin
+
+    - name: Install rustup (stable, minimal profile)
+      ansible.builtin.shell: |
+        set -o pipefail
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+          | sh -s -- -y --profile minimal --default-toolchain stable
+      args:
+        creates: "{{ app_root }}/.cargo/bin/cargo"
+      environment:
+        HOME: "{{ app_root }}"
+        RUSTUP_HOME: "{{ app_root }}/.rustup"
+        CARGO_HOME: "{{ app_root }}/.cargo"
+      become_user: "{{ app_user }}"
+
+    - name: Sync sources (without target, .git and the local database)
+      ansible.posix.synchronize:
+        src: "{{ playbook_dir }}/../bmcloud-server/"
+        dest: "{{ app_dir }}"
+        # delete: false so rsync never touches target/ (incremental builds)
+        # or the production database on the server.
+        rsync_opts:
+          - "--exclude=target"
+          - "--exclude=.git"
+          - "--exclude=bmcloud.db"
+      notify: restart bmcloud
+
+    - name: Give the app user ownership of the project files
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        recurse: true
+
+    - name: Build release binary
+      ansible.builtin.command:
+        cmd: cargo build --release
+        chdir: "{{ app_dir }}"
+      environment:
+        HOME: "{{ app_root }}"
+        PATH: "{{ app_root }}/.cargo/bin:{{ ansible_env.PATH }}"
+      become_user: "{{ app_user }}"
+      changed_when: false
+
+    - name: Create data directory for the database
+      ansible.builtin.file:
+        path: "{{ app_root }}/data"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0750"
+
+    - name: Install environment file (systemd EnvironmentFile)
+      ansible.builtin.template:
+        src: bmcloud.env.j2
+        dest: "{{ app_root }}/bmcloud.env"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0600"
+      notify: restart bmcloud
+
+    - name: Install systemd unit
+      ansible.builtin.template:
+        src: bmcloud.service.j2
+        dest: /etc/systemd/system/{{ service_name }}.service
+        mode: "0644"
+      notify:
+        - reload systemd
+        - restart bmcloud
+
+    - name: Enable and start the service
+      ansible.builtin.systemd:
+        name: "{{ service_name }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    # ---- nginx + TLS -------------------------------------------------------
+    # Chicken-and-egg problem: the real config points at TLS certificate
+    # files that do not exist yet, but certbot can only issue them once
+    # nginx serves the domain. Solution: on the very first run a throwaway
+    # HTTP-only stub is installed just long enough to pass the HTTP-01
+    # challenge, and is immediately replaced by the real config below.
+    # Every later run skips the bootstrap entirely.
+    
+    - name: Install certbot
+      ansible.builtin.apt:
+        name:
+          - certbot
+          - python3-certbot-nginx
+        state: present
+
+    - name: Check whether the TLS certificate already exists
+      ansible.builtin.stat:
+        path: /etc/letsencrypt/live/{{ bmcloud_domain }}/fullchain.pem
+      register: bmcloud_cert
+
+    - name: First-run bootstrap (issue the initial certificate)
+      when: not bmcloud_cert.stat.exists
+      block:
+        - name: Install a temporary HTTP-only stub site
+          ansible.builtin.copy:
+            dest: /etc/nginx/sites-available/bmcloud.conf
+            mode: "0644"
+            content: |
+              # Throwaway bootstrap block: exists only so that certbot can
+              # pass the HTTP-01 challenge. Replaced by the real config
+              # right after the certificate is issued.
+              server {
+                  listen 80;
+                  listen [::]:80;
+                  server_name {{ bmcloud_domain }} www.{{ bmcloud_domain }};
+
+                  location / {
+                      return 444;
+                  }
+              }
+
+        - name: Enable the site (symlink into sites-enabled)
+          ansible.builtin.file:
+            src: /etc/nginx/sites-available/bmcloud.conf
+            dest: /etc/nginx/sites-enabled/bmcloud.conf
+            state: link
+
+        - name: Reload nginx with the stub config
+          ansible.builtin.service:
+            name: nginx
+            state: reloaded
+
+        - name: Issue the certificate (certonly never edits nginx configs)
+          ansible.builtin.command:
+            cmd: >-
+              certbot certonly --nginx
+              -d {{ bmcloud_domain }}
+              -d www.{{ bmcloud_domain }}
+              --non-interactive
+              --agree-tos
+              -m {{ certbot_email }}
+              --keep-until-expiring
+
+    - name: Install bmcloud nginx site config
+      ansible.builtin.template:
+        src: nginx-bmcloud.conf.j2
+        dest: /etc/nginx/sites-available/bmcloud.conf
+        mode: "0644"
+      notify: reload nginx
+
+    - name: Enable the site (symlink into sites-enabled)
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/bmcloud.conf
+        dest: /etc/nginx/sites-enabled/bmcloud.conf
+        state: link
+      notify: reload nginx
+
+    - name: Validate nginx configuration
+      ansible.builtin.command: nginx -t
+      changed_when: false
+
+    - name: Reload nginx automatically after certificate renewal
+      ansible.builtin.copy:
+        content: |
+          #!/bin/sh
+          # certbot deploy hook: make nginx pick up the renewed certificate.
+          systemctl reload nginx
+        dest: /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+        mode: "0755"
+
+  handlers:
+    - name: reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: restart bmcloud
+      ansible.builtin.systemd:
+        name: "{{ service_name }}"
+        state: restarted
+
+    - name: reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded

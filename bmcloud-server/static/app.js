@@ -40,7 +40,7 @@ async function doRegister() {
         return;
     }
     const err = await resp.json().catch(() => null);
-    authError(err ? err.error : 'registration failed');
+    authError(err ? err.error : 'Registration failed');
 }
 
 async function doLogin() {
@@ -51,22 +51,22 @@ async function doLogin() {
     }, false);
     if (resp.status !== 200) {
         const err = await resp.json().catch(() => null);
-        authError(err ? err.error : 'log in failed');
+        authError(err ? err.error : 'Log in failed');
         return;
     }
     enter();
 }
 
 let pollTimer = null;
-let editing = null; // id устройства, имя которого сейчас редактируется
+let editing = null; // id of the device whose name is currently being renamed
 
 async function poll() {
     try {
         await load();
     } catch (e) {
-        msg.textContent = 'server unreachable';
+        msg.textContent = 'Server unreachable';
     }
-    pollTimer = setTimeout(poll, 5000); // следующий — только после завершения этого
+    pollTimer = setTimeout(poll, 5000); // schedule the next poll only after this one finishes
 }
 
 function enter() {
@@ -99,16 +99,16 @@ function timeAgo(unixSec) {
 }
 
 async function load() {
-    if (editing !== null) return; // no update devive page while renaming
+    if (editing !== null) return; // do not re-render the device table while renaming
     const resp = await api('/devices', 'GET');
     if (resp.status === 401) {
         authSection.hidden = false;
         panelSection.hidden = true;
-        authError('the session has expired, log in again');
+        authError('Session expired, log in again');
         return;
     }
     const devices = await resp.json();
-    msg.textContent = devices.length === 0 ? 'There are not devices yet' : '';
+    msg.textContent = devices.length === 0 ? 'No devices yet' : '';
     table.hidden = false;
     tbody.replaceChildren();
     for (const d of devices) {
@@ -150,7 +150,7 @@ function makeNameSpan(d) {
 }
 
 function startRename(id, oldName, span) {
-    if (editing !== null) return; // уже редактируем другое имя
+    if (editing !== null) return; // another name is already being edited
     editing = id;
 
     const input = document.createElement('input');
@@ -163,9 +163,9 @@ function startRename(id, oldName, span) {
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
-            input.blur(); // сохраняем
+            input.blur(); // save
         } else if (e.key === 'Escape') {
-            input.value = oldName; // blur увидит старое имя и не отправит запрос
+            input.value = oldName; // blur will see the old name and skip the request
             input.blur();
         }
     });
@@ -175,19 +175,19 @@ function startRename(id, oldName, span) {
 function finishRename(id, oldName, input) {
     editing = null;
     const newName = input.value.trim();
-    // пустое имя или без изменений — просто возвращаем текст, запрос не нужен
+    // Empty or unchanged name - just restore the text, no request needed.
     if (newName === '' || newName === oldName) {
         input.replaceWith(makeNameSpan({ id, name: oldName }));
         return;
     }
-    // оптимистично показываем новое имя, запрос уходит параллельно
+    // Optimistically show the new name; the request is sent in parallel.
     input.replaceWith(makeNameSpan({ id, name: newName }));
     api('/device/' + id, 'PATCH', { name: newName })
         .then((resp) => {
-            msg.textContent = resp.status === 204 ? '' : 'failed to rename device ' + id;
+            msg.textContent = resp.status === 204 ? '' : 'Failed to rename device ' + id;
         })
         .catch(() => {
-            msg.textContent = 'server unreachable';
+            msg.textContent = 'Server unreachable';
         });
 }
 
@@ -200,9 +200,9 @@ async function deleteDevice(id, btn) {
             await load();
             return;
         }
-        msg.textContent = 'failed to delete device ' + id;
+        msg.textContent = 'Failed to delete device ' + id;
     } catch (e) {
-        msg.textContent = 'server unreachable';
+        msg.textContent = 'Server unreachable';
     } finally {
         btn.disabled = false;
     }

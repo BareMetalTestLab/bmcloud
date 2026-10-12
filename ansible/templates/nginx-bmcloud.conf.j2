@@ -1,0 +1,49 @@
+# bmcloud site: HTTP redirects to HTTPS, HTTPS proxies to the app.
+# The certificate is issued by the playbook (certbot certonly); this config
+# is installed only after the certificate exists, so the ssl_certificate
+# paths are always valid. Fully static - no conditionals.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ bmcloud_domain }} www.{{ bmcloud_domain }};
+
+    # HTTPS only.
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name {{ bmcloud_domain }} www.{{ bmcloud_domain }};
+
+    ssl_certificate /etc/letsencrypt/live/{{ bmcloud_domain }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ bmcloud_domain }}/privkey.pem;
+
+    # Hardening.
+    ssl_protocols TLSv1.2 TLSv1.3;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    # Everything (API and static) is proxied to axum - static/ is served by
+    # ServeDir from the application itself.
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # For potential future WebSocket support.
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        # Long-lived connections (future device state streaming).
+        proxy_read_timeout 3600s;
+    }
+}
+

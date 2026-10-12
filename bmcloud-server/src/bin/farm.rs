@@ -11,7 +11,7 @@ const COUNT: usize = 10;
 async fn main() {
     let client = reqwest::Client::new();
 
-    // 1. User with farm: 409 = "already exist" — it's not error
+    // 1. User with farm: 409 = "already exist" - it's not error
     let resp = client
         .post(format!("{BASE}/register"))
         .json(&json!({ "login": "farmer", "email": EMAIL, "password": PASSWORD }))
@@ -82,7 +82,7 @@ async fn main() {
 
     println!("farm is running: {COUNT} devices respond every 2–6 s");
     println!("open http://localhost:3000 and login {EMAIL} / {PASSWORD}");
-    println!("Ctrl+C — to stop");
+    println!("Ctrl+C - to stop");
     tokio::signal::ctrl_c().await.unwrap();
     println!("farm has been stopped");
 }

@@ -1,0 +1,22 @@
+[Unit]
+Description=BMCloud server (axum)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ app_user }}
+Group={{ app_user }}
+EnvironmentFile={{ app_root }}/bmcloud.env
+WorkingDirectory={{ app_dir }}
+ExecStart={{ app_dir }}/target/release/bmcloud-server
+Restart=on-failure
+RestartSec=2
+
+# Light sandboxing: /usr, /boot, /etc read-only, /home inaccessible.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

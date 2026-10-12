@@ -1,0 +1,10 @@
+[bmcloud]
+bmcloud-host ansible_host=192.168.1.50 ansible_user=root
+
+[bmcloud:vars]
+# Domain/subdomain bmcloud will live on (server_name in nginx + certificate CN).
+bmcloud_domain=bmcloud.example.com
+# E-mail for Let's Encrypt expiry notices.
+certbot_email=you@example.com
+# ansible_port=22
+# ansible_ssh_private_key_file=~/.ssh/id_ed25519
