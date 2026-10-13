@@ -1,3 +1,4 @@
 target/
 bmcloud.db
 ansible/inventory.ini
+ansible/bmcloud-src.tar.gz

@@ -1,7 +1,8 @@
 ---
 # Deploy bmcloud-server: build on the target host itself (required because
 # ServeDir embeds CARGO_MANIFEST_DIR at compile time) and run it under
-# systemd as a dedicated system user behind nginx (HTTPS via certbot).
+# systemd behind nginx (HTTPS via certbot). Everything is set up as root;
+# the service itself runs as the ansible user (no extra user is created).
 #
 # Run from the ansible/ directory:
 #   ansible-playbook deploy.yml
@@ -10,18 +11,15 @@
   become: true
 
   vars:
-    app_user: bmcloud
     app_root: /opt/bmcloud
     # This path becomes CARGO_MANIFEST_DIR at build time. ServeDir resolves
     # static files relative to it, so it must not change (unless lib.rs
     # changes too).
     app_dir: /opt/bmcloud/bmcloud-server
     service_name: bmcloud
-    # server_name for nginx. Override in inventory ([bmcloud:vars]).
-    bmcloud_domain: bmcloud.example.com
-    # Also cover the www subdomain (SAN entry in the certificate).
-    # E-mail for Let's Encrypt expiry notices.
-    certbot_email: admin@example.com
+    # NOTE: play vars have higher precedence than inventory, so
+    # bmcloud_domain, certbot_email and app_user are intentionally NOT
+    # defined here. Set them in inventory ([bmcloud:vars]).
 
   tasks:
     - name: Install build and runtime dependencies
@@ -31,19 +29,12 @@
           - curl
           - gcc          # C compiler for bundled SQLite (rusqlite)
           - libc6-dev
-          - rsync
+          - pkg-config   # openssl-sys (via reqwest/native-tls) needs it to find OpenSSL
+          - libssl-dev   # OpenSSL headers for reqwest (native-tls)
           - nginx
         state: present
         update_cache: true
         cache_valid_time: 3600
-
-    - name: Create system user
-      ansible.builtin.user:
-        name: "{{ app_user }}"
-        system: true
-        create_home: true
-        home: "{{ app_root }}"
-        shell: /usr/sbin/nologin
 
     - name: Install rustup (stable, minimal profile)
       ansible.builtin.shell: |
@@ -56,27 +47,40 @@
         HOME: "{{ app_root }}"
         RUSTUP_HOME: "{{ app_root }}/.rustup"
         CARGO_HOME: "{{ app_root }}/.cargo"
-      become_user: "{{ app_user }}"
 
-    - name: Sync sources (without target, .git and the local database)
-      ansible.posix.synchronize:
-        src: "{{ playbook_dir }}/../bmcloud-server/"
-        dest: "{{ app_dir }}"
-        # delete: false so rsync never touches target/ (incremental builds)
-        # or the production database on the server.
-        rsync_opts:
-          - "--exclude=target"
-          - "--exclude=.git"
-          - "--exclude=bmcloud.db"
-      notify: restart bmcloud
+    - name: Ensure the app root belongs to the app user
+      # Covers stale ownership, e.g. after a previously created dedicated
+      # user was deleted (files keep its numeric uid/gid).
+      ansible.builtin.file:
+        path: "{{ app_root }}"
+        state: directory
+        owner: "{{ app_user }}"
+        mode: "0755"
 
-    - name: Give the app user ownership of the project files
+    - name: Create the project directory
       ansible.builtin.file:
         path: "{{ app_dir }}"
         state: directory
         owner: "{{ app_user }}"
+
+    - name: Pack sources on the control node (without target, .git and the database)
+      ansible.builtin.command:
+        cmd: >-
+          tar -czf {{ playbook_dir }}/bmcloud-src.tar.gz
+          --exclude=bmcloud-server/target
+          --exclude=bmcloud-server/.git
+          --exclude=bmcloud-server/bmcloud.db
+          -C {{ playbook_dir }}/.. bmcloud-server
+      delegate_to: localhost
+      changed_when: false
+
+    - name: Sync sources to the server (extraneous files like target/ are never deleted)
+      ansible.builtin.unarchive:
+        src: "{{ playbook_dir }}/bmcloud-src.tar.gz"
+        dest: "{{ app_root }}"
+        owner: "{{ app_user }}"
         group: "{{ app_user }}"
-        recurse: true
+      notify: restart bmcloud
 
     - name: Build release binary
       ansible.builtin.command:
@@ -85,7 +89,6 @@
       environment:
         HOME: "{{ app_root }}"
         PATH: "{{ app_root }}/.cargo/bin:{{ ansible_env.PATH }}"
-      become_user: "{{ app_user }}"
       changed_when: false
 
     - name: Create data directory for the database
@@ -93,7 +96,6 @@
         path: "{{ app_root }}/data"
         state: directory
         owner: "{{ app_user }}"
-        group: "{{ app_user }}"
         mode: "0750"
 
     - name: Install environment file (systemd EnvironmentFile)
@@ -101,7 +103,6 @@
         src: bmcloud.env.j2
         dest: "{{ app_root }}/bmcloud.env"
         owner: "{{ app_user }}"
-        group: "{{ app_user }}"
         mode: "0600"
       notify: restart bmcloud
 
