@@ -26,6 +26,18 @@
         <p>
             <button id="logout-btn">Logout</button>
         </p>
+        <p>
+            <input id="new-device-name" placeholder="new device name" size="30">
+            <button id="add-device-btn">Add device</button>
+        </p>
+        <div id="new-token" hidden>
+            <p>Token for <b id="new-token-name"></b> — shown only once, copy it now:</p>
+            <p class="token-row">
+                <code id="new-token-value"></code>
+                <button id="copy-token-btn">Copy</button>
+                <span id="copy-msg"></span>
+            </p>
+        </div>
         <p id="msg"></p>
         <table id="devices" hidden>
             <thead>

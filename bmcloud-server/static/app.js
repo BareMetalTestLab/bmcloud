@@ -7,6 +7,13 @@ const authMsg = document.getElementById('auth-msg');
 const msg = document.getElementById('msg');
 const table = document.getElementById('devices');
 const tbody = document.getElementById('devices-body');
+const newDeviceInput = document.getElementById('new-device-name');
+const addDeviceBtn = document.getElementById('add-device-btn');
+const newTokenBox = document.getElementById('new-token');
+const newTokenName = document.getElementById('new-token-name');
+const newTokenValue = document.getElementById('new-token-value');
+const copyTokenBtn = document.getElementById('copy-token-btn');
+const copyMsg = document.getElementById('copy-msg');
 
 async function api(path, method, body) {
     const headers = {};
@@ -82,6 +89,7 @@ async function doLogout() {
     panelSection.hidden = true;
     table.hidden = true;
     tbody.replaceChildren();
+    newTokenBox.hidden = true;
     msg.textContent = '';
 
     clearTimeout(pollTimer);
@@ -208,9 +216,68 @@ async function deleteDevice(id, btn) {
     }
 }
 
+async function createDevice() {
+    const name = newDeviceInput.value.trim();
+    if (name === '') {
+        msg.textContent = 'Enter a device name';
+        newDeviceInput.focus();
+        return;
+    }
+    addDeviceBtn.disabled = true;
+    try {
+        const resp = await api('/devices', 'POST', { name });
+        if (resp.status === 201) {
+            const body = await resp.json(); // { device, token } — the token is never shown again
+            msg.textContent = '';
+            newDeviceInput.value = '';
+            newTokenName.textContent = body.device.name;
+            newTokenValue.textContent = body.token;
+            newTokenBox.hidden = false;
+            await load();
+            return;
+        }
+        const err = await resp.json().catch(() => null);
+        msg.textContent = err ? err.error : 'Failed to create device';
+    } catch (e) {
+        msg.textContent = 'Server unreachable';
+    } finally {
+        addDeviceBtn.disabled = false;
+    }
+}
+
+let copyTimer = null;
+
+async function copyToken() {
+    const value = newTokenValue.textContent;
+    let ok = false;
+    try {
+        await navigator.clipboard.writeText(value);
+        ok = true;
+    } catch (e) {
+        // clipboard API needs a secure context (https / localhost) — fall back for plain http
+        const ta = document.createElement('textarea');
+        ta.value = value;
+        document.body.appendChild(ta);
+        ta.select();
+        ok = document.execCommand('copy');
+        ta.remove();
+    }
+    copyMsg.textContent = ok ? 'copied!' : 'copy failed — select it manually';
+    clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => { copyMsg.textContent = ''; }, 2000);
+}
+
 document.getElementById('login-btn').addEventListener('click', doLogin);
 document.getElementById('register-btn').addEventListener('click', doRegister);
 document.getElementById('logout-btn').addEventListener('click', doLogout);
+addDeviceBtn.addEventListener('click', createDevice);
+copyTokenBtn.addEventListener('click', copyToken);
+newDeviceInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        createDevice();
+    }
+});
 
 async function init() {
     const resp = await api('/devices', 'GET');

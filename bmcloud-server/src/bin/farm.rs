@@ -2,7 +2,7 @@ use rand::{RngExt, rng};
 use serde_json::json;
 use tokio::time::{Duration, interval};
 
-const BASE: &str = "http://localhost:3000";
+const BASE: &str = "http://localhost:80";
 const EMAIL: &str = "farmer@bmcloud.local";
 const PASSWORD: &str = "Farmer1!x";
 const COUNT: usize = 10;
