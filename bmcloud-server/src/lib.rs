@@ -1,18 +1,22 @@
+pub mod auth;
 pub mod db;
+pub mod devices;
 pub mod errors;
-pub mod handlers;
-pub mod models;
 pub mod state;
+pub mod users;
 
 use axum::{
     Router,
     routing::{delete, get, post},
 };
 
-use handlers::{
-    create_device, delete_device, device_me, device_update_state, get_device_state, list_devices,
-    login, logout, me, register, rename_device,
+use devices::{
+    device_create, device_delete, device_get_state, device_list, device_me, device_rename,
+    device_update_state,
 };
+
+use users::{login, logout, me, register};
+
 use state::AppState;
 use tower_http::services::ServeDir;
 
@@ -22,9 +26,9 @@ pub fn router(state: AppState) -> Router {
         .route("/login", post(login))
         .route("/logout", post(logout))
         .route("/me", get(me))
-        .route("/devices", get(list_devices).post(create_device))
-        .route("/device/{id}", delete(delete_device).patch(rename_device))
-        .route("/device/{id}/state", get(get_device_state))
+        .route("/devices", get(device_list).post(device_create))
+        .route("/device/{id}", delete(device_delete).patch(device_rename))
+        .route("/device/{id}/state", get(device_get_state))
         .route("/device/me", get(device_me))
         .route("/device/state", post(device_update_state))
         .fallback_service(ServeDir::new(concat!(

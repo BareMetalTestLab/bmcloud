@@ -305,7 +305,7 @@ async fn me_with_unknown_token_returns_401() {
 }
 
 #[tokio::test]
-async fn create_device_returns_201_and_device_can_be_listed() {
+async fn device_create_returns_201_and_device_can_be_listed() {
     let base = spawn_app().await;
 
     // 1. register new valid user and login to get a token
@@ -370,7 +370,7 @@ async fn create_device_returns_201_and_device_can_be_listed() {
 }
 
 #[tokio::test]
-async fn create_device_without_name_returns_400() {
+async fn device_create_without_name_returns_400() {
     let base = spawn_app().await;
 
     let token = register_and_login(&reqwest::Client::new(), &base, "anna", "anna@mail.ru").await;
@@ -387,7 +387,7 @@ async fn create_device_without_name_returns_400() {
 }
 
 #[tokio::test]
-async fn create_device_with_unknown_token_returns_401() {
+async fn device_create_with_unknown_token_returns_401() {
     let base = spawn_app().await;
 
     let response = reqwest::Client::new()
@@ -767,7 +767,7 @@ async fn rename_returns_204_and_device_sees_new_name() {
 }
 
 #[tokio::test]
-async fn rename_by_another_user_returns_401() {
+async fn rename_with_invalid_token_returns_401() {
     let base = spawn_app().await;
 
     let client = reqwest::Client::new();
@@ -787,7 +787,7 @@ async fn rename_by_another_user_returns_401() {
 
     let response = client
         .patch(format!("{base}/device/{device_id}"))
-        .header("Authorization", format!("Bearer another-token"))
+        .header("Authorization", format!("Bearer invlaid-token"))
         .json(&json!({ "name": "anna-esp32-c5" }))
         .send()
         .await

@@ -1,17 +1,12 @@
+use crate::auth::{AuthUser, extract_bearer_token, unix_now};
 use crate::errors::AppError;
-use crate::models::{
-    AuthDevice, AuthUser, CreateDeviceRequest, CreateDeviceResponse, DeviceResponse,
-    DeviceStateRequest, LoginRequest, LoginResponse, RegisterRequest, UserResponse,
-};
 use crate::state::AppState;
-
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use uuid::Uuid;
 
 use axum::{
     Json,
-    extract::{FromRequestParts, Path, State},
+    extract::{FromRequestParts, State},
     http::request::Parts,
     http::{HeaderMap, HeaderValue, StatusCode, header::SET_COOKIE},
 };
@@ -22,6 +17,67 @@ use argon2::{
 };
 
 use rusqlite::params;
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Deserialize, Clone)]
+pub struct RegisterRequest {
+    pub login: String,
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UserResponse {
+    pub id: i64,
+    pub login: String,
+    pub email: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct LoginRequest {
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LoginResponse {
+    pub user: UserResponse,
+    pub token: String,
+}
+
+impl RegisterRequest {
+    pub fn validate(&self) -> Result<(), AppError> {
+        if !(self.email.contains('@') && self.email.contains('.')) {
+            return Err(AppError::InvalidEmail);
+        }
+        if self.password.chars().any(|c| !c.is_ascii()) {
+            return Err(AppError::PasswordHasNonAscii);
+        }
+        if self.password.chars().count() < 8 {
+            return Err(AppError::WeakPassword);
+        }
+        if !self.password.chars().any(|c| c.is_ascii_digit()) {
+            return Err(AppError::PasswordNoDigit);
+        }
+        if !self.password.chars().any(|c| c.is_ascii_alphabetic()) {
+            return Err(AppError::PasswordNoLetter);
+        }
+        if !self.password.chars().any(|c| c.is_ascii_uppercase()) {
+            return Err(AppError::PasswordNoUpperCase);
+        }
+        if !self.password.chars().any(|c| c.is_ascii_lowercase()) {
+            return Err(AppError::PasswordNoLowerCase);
+        }
+        if !self.password.chars().any(|c| c.is_ascii_punctuation()) {
+            return Err(AppError::PasswordNoPunctuation);
+        }
+        if self.login.is_empty() {
+            return Err(AppError::InvalidLogin);
+        }
+        Ok(())
+    }
+}
 
 impl FromRequestParts<AppState> for AuthUser {
     type Rejection = AppError;
@@ -35,23 +91,25 @@ impl FromRequestParts<AppState> for AuthUser {
     }
 }
 
-impl FromRequestParts<AppState> for AuthDevice {
-    type Rejection = AppError;
+const SESSION_COOKIE: &str = "bmcloud_session";
+const SESSION_MAX_AGE: i64 = 7 * 24 * 60 * 60;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
-        let device = current_device(state, &parts.headers)?;
-        Ok(device)
+fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    let cookies = headers.get("Cookie")?.to_str().ok()?;
+    for pair in cookies.split(';') {
+        let pair = pair.trim();
+        if let Some(value) = pair.strip_prefix(&format!("{name}=")) {
+            return Some(value.to_string());
+        }
     }
+    None
 }
 
-fn unix_now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock is after 1970")
-        .as_secs() as i64
+fn extract_session_token(headers: &HeaderMap) -> Result<String, AppError> {
+    if let Ok(token) = extract_bearer_token(headers) {
+        return Ok(token);
+    }
+    cookie_value(headers, SESSION_COOKIE).ok_or(AppError::Unauthorized)
 }
 
 fn current_user(state: &AppState, headers: &HeaderMap) -> Result<AuthUser, AppError> {
@@ -79,70 +137,6 @@ fn current_user(state: &AppState, headers: &HeaderMap) -> Result<AuthUser, AppEr
         }
         Err(e) => return Err(e.into()),
     };
-}
-
-fn current_device(state: &AppState, headers: &HeaderMap) -> Result<AuthDevice, AppError> {
-    let db = state.db.lock().unwrap();
-
-    let token = extract_bearer_token(headers)?;
-
-    match db.query_row(
-        "SELECT d.id, d.name, COALESCE(s.state, 'offline'), COALESCE(s.updated_at, d.created_at), d.user_id
-        FROM devices d
-        LEFT JOIN device_state s ON s.device_id = d.id
-        WHERE d.token = ?1",
-        params![token],
-        |row| {
-            Ok(AuthDevice {
-                info: DeviceResponse {
-                    id: row.get(0)?,
-                    name: row.get(1)?,
-                    state: row.get(2)?,
-                    updated_at: row.get(3)?,
-                },
-                owner_id: row.get(4)?,
-            })
-        },
-    ) {
-        Ok(device) => return Ok(device),
-        Err(rusqlite::Error::QueryReturnedNoRows) => {
-            return Err(AppError::Unauthorized);
-        }
-        Err(e) => return Err(e.into()),
-    };
-}
-
-const SESSION_COOKIE: &str = "bmcloud_session";
-const SESSION_MAX_AGE: i64 = 7 * 24 * 60 * 60;
-
-fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
-    let cookies = headers.get("Cookie")?.to_str().ok()?;
-    for pair in cookies.split(';') {
-        let pair = pair.trim();
-        if let Some(value) = pair.strip_prefix(&format!("{name}=")) {
-            return Some(value.to_string());
-        }
-    }
-    None
-}
-
-fn extract_session_token(headers: &HeaderMap) -> Result<String, AppError> {
-    if let Ok(token) = extract_bearer_token(headers) {
-        return Ok(token);
-    }
-    cookie_value(headers, SESSION_COOKIE).ok_or(AppError::Unauthorized)
-}
-
-fn extract_bearer_token(headers: &HeaderMap) -> Result<String, AppError> {
-    let header = headers.get("Authorization").ok_or(AppError::Unauthorized)?;
-
-    let header = header.to_str().map_err(|_| AppError::Unauthorized)?;
-
-    let token = header
-        .strip_prefix("Bearer ")
-        .ok_or(AppError::Unauthorized)?;
-
-    Ok(token.to_string())
 }
 
 pub async fn register(
@@ -272,177 +266,6 @@ pub async fn me(user: AuthUser) -> Json<UserResponse> {
     })
 }
 
-pub async fn create_device(
-    State(state): State<AppState>,
-    user: AuthUser,
-    Json(payload): Json<CreateDeviceRequest>,
-) -> Result<(StatusCode, Json<CreateDeviceResponse>), AppError> {
-    let name = payload.name.trim().to_string();
-    if name.is_empty() {
-        return Err(AppError::InvalidDeviceName);
-    }
-
-    let token = Uuid::new_v4().to_string();
-
-    let db = state.db.lock().unwrap();
-    let now = unix_now();
-
-    db.execute(
-        "INSERT INTO devices (user_id, name, token, created_at) VALUES (?1, ?2, ?3, ?4)",
-        params![user.id, name, token, now],
-    )?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(CreateDeviceResponse {
-            device: DeviceResponse {
-                id: db.last_insert_rowid(),
-                name,
-                state: "offline".to_string(),
-                updated_at: now,
-            },
-            token,
-        }),
-    ))
-}
-
-pub async fn delete_device(
-    State(state): State<AppState>,
-    Path(device_id): Path<i64>,
-    user: AuthUser,
-) -> Result<StatusCode, AppError> {
-    let db = state.db.lock().unwrap();
-
-    let deleted = db.execute(
-        "DELETE FROM devices WHERE id = ?1 AND user_id = ?2",
-        params![device_id, user.id],
-    )?;
-
-    if deleted == 0 {
-        return Err(AppError::NotFound);
-    }
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
-pub async fn list_devices(
-    State(state): State<AppState>,
-    user: AuthUser,
-) -> Result<Json<Vec<DeviceResponse>>, AppError> {
-    let db = state.db.lock().unwrap();
-
-    let mut stmt = db.prepare(
-        "SELECT d.id, d.name, COALESCE(s.state, 'offline'), COALESCE(s.updated_at, d.created_at)
-        FROM devices d
-        LEFT JOIN device_state s ON s.device_id = d.id
-        WHERE d.user_id = ?1
-        ORDER BY d.id",
-    )?;
-
-    let devices = stmt
-        .query_map(params![user.id], |row| {
-            let id = row.get(0)?;
-            let name = row.get(1)?;
-            let state = row.get(2)?;
-            let updated_at = row.get(3)?;
-            Ok(DeviceResponse {
-                id,
-                name,
-                state,
-                updated_at,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(Json(devices))
-}
-
-pub async fn device_me(device: AuthDevice) -> Json<DeviceResponse> {
-    Json(DeviceResponse {
-        id: device.info.id,
-        name: device.info.name,
-        state: device.info.state,
-        updated_at: device.info.updated_at,
-    })
-}
-
-pub async fn device_update_state(
-    State(state): State<AppState>,
-    device: AuthDevice,
-    Json(payload): Json<DeviceStateRequest>,
-) -> Result<StatusCode, AppError> {
-    let new_state = payload.state.trim();
-    if !matches!(new_state, "offline" | "online" | "error" | "busy") {
-        return Err(AppError::InvalidDeviceState);
-    }
-    let db = state.db.lock().unwrap();
-
-    db.execute(
-        "INSERT INTO device_state (device_id, state, updated_at)
-         VALUES (?1, ?2, ?3)
-         ON CONFLICT(device_id) DO UPDATE
-         SET state = excluded.state, updated_at = excluded.updated_at",
-        params![device.info.id, new_state, unix_now()],
-    )?;
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
-pub async fn get_device_state(
-    State(state): State<AppState>,
-    Path(device_id): Path<i64>,
-    user: AuthUser,
-) -> Result<Json<DeviceResponse>, AppError> {
-    let db = state.db.lock().unwrap();
-
-    match db.query_row(
-        "SELECT d.name, COALESCE(s.state, 'offline'), COALESCE(s.updated_at, d.created_at)
-        FROM devices d
-        LEFT JOIN device_state s ON s.device_id = d.id
-        WHERE d.id = ?1 AND d.user_id = ?2",
-        params![device_id, user.id],
-        |row| {
-            Ok(DeviceResponse {
-                id: device_id,
-                name: row.get(0)?,
-                state: row.get(1)?,
-                updated_at: row.get(2)?,
-            })
-        },
-    ) {
-        Ok(resp) => Ok(Json(resp)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Err(AppError::NotFound),
-        Err(e) => Err(e.into()),
-    }
-}
-
-pub async fn rename_device(
-    State(state): State<AppState>,
-    Path(device_id): Path<i64>,
-    user: AuthUser,
-    Json(payload): Json<CreateDeviceRequest>,
-) -> Result<StatusCode, AppError> {
-    let new_name = payload.name.trim().to_string();
-    if new_name.is_empty() {
-        return Err(AppError::InvalidDeviceName);
-    }
-
-    let db = state.db.lock().unwrap();
-
-    let renamed = db.execute(
-        "UPDATE devices 
-            SET name = ?1
-            WHERE id = ?2 AND user_id = ?3",
-        params![new_name, device_id, user.id],
-    )?;
-
-    if renamed == 0 {
-        return Err(AppError::NotFound);
-    }
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -465,6 +288,87 @@ mod tests {
             |row| row.get(0),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn email_without_at_is_rejected() {
+        let req = RegisterRequest {
+            email: "anna-mail.ru".to_string(),
+            ..valid_request()
+        };
+        assert_eq!(req.validate(), Err(AppError::InvalidEmail));
+    }
+
+    #[test]
+    fn short_password_is_rejected() {
+        let req = RegisterRequest {
+            password: "1234567".to_string(),
+            ..valid_request()
+        };
+        assert_eq!(req.validate(), Err(AppError::WeakPassword));
+    }
+
+    #[test]
+    fn short_without_letter_is_rejected() {
+        let req = RegisterRequest {
+            password: "12345678!".to_string(),
+            ..valid_request()
+        };
+        assert_eq!(req.validate(), Err(AppError::PasswordNoLetter));
+    }
+
+    #[test]
+    fn password_without_digit_is_rejected() {
+        let req = RegisterRequest {
+            password: "SuperSecret!".to_string(),
+            ..valid_request()
+        };
+        assert_eq!(req.validate(), Err(AppError::PasswordNoDigit));
+    }
+
+    #[test]
+    fn password_without_uppercase_is_rejected() {
+        let req = RegisterRequest {
+            password: "supersecret1!".to_string(),
+            ..valid_request()
+        };
+        assert_eq!(req.validate(), Err(AppError::PasswordNoUpperCase));
+    }
+
+    #[test]
+    fn password_without_lowercase_is_rejected() {
+        let req = RegisterRequest {
+            password: "SUPERSECRET1!".to_string(),
+            ..valid_request()
+        };
+        assert_eq!(req.validate(), Err(AppError::PasswordNoLowerCase));
+    }
+
+    #[test]
+    fn password_without_punctuation_is_rejected() {
+        let req = RegisterRequest {
+            password: "SuperSecret1".to_string(),
+            ..valid_request()
+        };
+        assert_eq!(req.validate(), Err(AppError::PasswordNoPunctuation));
+    }
+
+    #[test]
+    fn cyrillic_password_is_rejected() {
+        let req = RegisterRequest {
+            password: "паро".to_string(),
+            ..valid_request()
+        };
+        assert_eq!(req.validate(), Err(AppError::PasswordHasNonAscii));
+    }
+
+    #[test]
+    fn mixed_password_with_cyrillic_is_rejected() {
+        let req = RegisterRequest {
+            password: "SuperSecret1!Пароль".to_string(),
+            ..valid_request()
+        };
+        assert_eq!(req.validate(), Err(AppError::PasswordHasNonAscii));
     }
 
     #[tokio::test]
