@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+
+<head>
+    <meta charset="utf-8">
+    <title>bmcloud API</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <h1>bmcloud</h1>
+
+    <nav class="tabs">
+        <a class="tab" href="/">Dashboard</a>
+        <a class="tab active" href="/api.html">API</a>
+    </nav>
+
+    <section id="api-panel">
+        <h2>REST API</h2>
+
+        <p>
+            All bodies are JSON unless noted otherwise, timestamps are Unix seconds,
+            and every error is <code>{ "error": "message" }</code> with a matching HTTP status.
+        </p>
+        <p>
+            <b>User requests</b> authenticate with the <code>bmcloud_session</code> cookie set by
+            <code>POST /login</code> or with <code>Authorization: Bearer &lt;token&gt;</code>.
+            Sessions live for 7 days.<br>
+            <b>Device requests</b> authenticate with the token shown once at creation:
+            <code>Authorization: Bearer &lt;device_token&gt;</code>.
+        </p>
+
+        <h3>Accounts and sessions</h3>
+
+        <div class="endpoint">
+            <p class="ep-head"><span class="method m-post">POST</span><code>/register</code></p>
+            <p>Create an account. The password needs 8+ ASCII characters with a digit,
+                a lowercase letter, an uppercase letter and a punctuation mark.</p>
+            <pre>{ "email": "anna@mail.ru", "password": "SuperSecret1!" }
+
+201 → { "id": 1, "email": "anna@mail.ru" }
+400 invalid email or weak password    409 email is already taken</pre>
+        </div>
+
+        <div class="endpoint">
+            <p class="ep-head"><span class="method m-post">POST</span><code>/login</code></p>
+            <p>Exchange email and password for a session token; also sets the HttpOnly session cookie.</p>
+            <pre>{ "email": "anna@mail.ru", "password": "SuperSecret1!" }
+
+200 → { "user": { "id": 1, "email": "anna@mail.ru" }, "token": "5f1c…" }
+     + Set-Cookie: bmcloud_session=5f1c…; HttpOnly; Max-Age=604800
+401 invalid email or password</pre>
+        </div>
+
+        <div class="endpoint">
+            <p class="ep-head"><span class="method m-post">POST</span><code>/logout</code> <span class="auth-tag">user</span></p>
+            <p>Delete the current session and expire the cookie.</p>
+            <pre>204
+401 missing or invalid token</pre>
+        </div>
+
+        <div class="endpoint">
+            <p class="ep-head"><span class="method m-get">GET</span><code>/me</code> <span class="auth-tag">user</span></p>
+            <pre>200 → { "id": 1, "email": "anna@mail.ru" }</pre>
+        </div>
+
+        <h3>Devices - owner side</h3>
+
+        <div class="endpoint">
+            <p class="ep-head"><span class="method m-get">GET</span><code>/devices</code> <span class="auth-tag">user</span></p>
+            <p>All your devices with their last reported state (offline, online, error, busy).</p>
+            <pre>200 → [ { "id": 1, "name": "blackmagic-c5", "state": "online", "updated_at": 1760000000 } ]</pre>
+        </div>
+
+        <div class="endpoint">
+            <p class="ep-head"><span class="method m-post">POST</span><code>/devices</code> <span class="auth-tag">user</span></p>
+            <p>Create a device. The token is shown only this once.</p>
+            <pre>{ "name": "blackmagic-c5" }
+
+201 → { "device": { "id": 1, "name": "blackmagic-c5", "state": "offline", "updated_at": 1760000000 },
+        "token": "7b0e…" }
+400 invalid device name</pre>
+        </div>
+
+        <div class="endpoint">
+            <p class="ep-head"><span class="method m-patch">PATCH</span><code>/device/{id}</code> <span class="auth-tag">user</span></p>
+            <p>Rename your device.</p>
+            <pre>{ "name": "bench-probe" }
+
+204    400 invalid device name    404 unknown or foreign device</pre>
+        </div>
+
+        <div class="endpoint">
+            <p class="ep-head"><span class="method m-delete">DELETE</span><code>/device/{id}</code> <span class="auth-tag">user</span></p>
+            <p>Delete the device together with its state and jobs (foreign keys cascade).</p>
+            <pre>204    404 unknown or foreign device</pre>
+        </div>
+
+        <div class="endpoint">
+            <p class="ep-head"><span class="method m-get">GET</span><code>/device/{id}/state</code> <span class="auth-tag">user</span></p>
+            <pre>200 → { "id": 1, "name": "blackmagic-c5", "state": "busy", "updated_at": 1760000000 }
+404 unknown or foreign device</pre>
+        </div>
+
+        <h3>Firmware and flash jobs - owner side</h3>
+
+        <div class="endpoint">
+            <p class="ep-head"><span class="method m-get">GET</span><code>/jobs</code> <span class="auth-tag">user</span></p>
+            <p>Your flash jobs, newest first. Status moves pending → flashing → done | failed.</p>
+            <pre>200 → [ { "job_id": 3, "device_id": 1, "fw_name": "app.bin", "status": "done", "error": null } ]</pre>
+        </div>
+
+        <div class="endpoint">
+            <p class="ep-head"><span class="method m-post">POST</span><code>/device/{id}/flash?name=app.bin</code> <span class="auth-tag">user</span></p>
+            <p>Upload a firmware and queue a flash job for the device in one request.
+                The body is the raw file (<code>Content-Type: application/octet-stream</code>),
+                the name goes in the query string. Limit: 8 MB (10 MB behind nginx).</p>
+            <pre>POST /device/1/flash?name=app.bin
+Content-Type: application/octet-stream
+&lt;raw firmware bytes&gt;
+
+201 → { "job_id": 1, "firmware_id": 1, "name": "app.bin", "size": 1024 }
+400 invalid firmware name    404 unknown or foreign device</pre>
+        </div>
+
+        <h3>Programmer side - device token</h3>
+        <p>
+            Mind the naming: <code>/device/{id}/…</code> above is the owner addressing a device by id,
+            while the endpoints below identify themselves by token and take no id.
+        </p>
+
+        <div class="endpoint">
+            <p class="ep-head"><span class="method m-get">GET</span><code>/device/me</code> <span class="auth-tag">device</span></p>
+            <pre>200 → { "id": 1, "name": "blackmagic-c5", "state": "online", "updated_at": 1760000000 }</pre>
+        </div>
+
+        <div class="endpoint">
+            <p class="ep-head"><span class="method m-post">POST</span><code>/device/state</code> <span class="auth-tag">device</span></p>
+            <p>Report the device state: offline, online, error or busy.</p>
+            <pre>{ "state": "busy" }
+
+204    400 invalid device state</pre>
+        </div>
+
+        <div class="endpoint">
+            <p class="ep-head"><span class="method m-get">GET</span><code>/device/job</code> <span class="auth-tag">device</span></p>
+            <p>Claim the oldest pending job — it atomically moves to flashing, so a second poll
+                will not see it. Poll every few seconds; 404 simply means no work.</p>
+            <pre>200 → { "job_id": 1, "firmware_id": 1 }
+404 no pending jobs</pre>
+        </div>
+
+        <div class="endpoint">
+            <p class="ep-head"><span class="method m-get">GET</span><code>/device/firmware/{firmware_id}</code> <span class="auth-tag">device</span></p>
+            <p>Download the firmware bytes (octet-stream), only if the firmware belongs to the
+                device's owner. Separate from the claim so a dropped download can be retried.</p>
+            <pre>200 → raw bytes
+404 unknown or foreign firmware</pre>
+        </div>
+
+        <div class="endpoint">
+            <p class="ep-head"><span class="method m-post">POST</span><code>/device/job/{job_id}</code> <span class="auth-tag">device</span></p>
+            <p>Report the result of a claimed job. Only a job currently in flashing accepts a report.</p>
+            <pre>{ "status": "done" }
+{ "status": "failed", "error": "flash write timeout" }
+
+204    400 invalid job status    404 foreign, unknown or already reported job</pre>
+        </div>
+
+        <h3>The flash loop</h3>
+        <pre class="flow">owner    POST /device/{id}/flash?name=app.bin    job → pending
+device  GET  /device/job                         pending → flashing, {job_id, firmware_id}
+device  GET  /device/firmware/{firmware_id}      raw bytes, retried on network failure
+device  POST /device/job/{job_id}                flashing → done | failed</pre>
+    </section>
+</body>
+
+</html>

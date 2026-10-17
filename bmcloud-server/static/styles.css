@@ -62,7 +62,8 @@ select:focus {
 }
 
 button,
-.file-btn {
+.file-btn,
+.tab {
     padding: 0.5rem 1.25rem;
     background: var(--fill);
     color: var(--text);
@@ -73,13 +74,15 @@ button,
 }
 
 button:hover,
-.file-btn:hover {
+.file-btn:hover,
+.tab:hover {
     background: #12386b;
     border-color: #888;
 }
 
 button:active,
-.file-btn:active {
+.file-btn:active,
+.tab:active {
     transform: scale(0.97);
 }
 
@@ -228,4 +231,100 @@ td {
 #copy-msg {
     color: #2ecc71;
     font-size: 0.85rem;
+}
+
+/* Tab bar under the heading - plain links styled like buttons */
+.tabs {
+    max-width: var(--column);
+    margin: 0 auto 1.5rem;
+    display: flex;
+    gap: 0.5rem;
+}
+
+a.tab {
+    display: inline-block;
+    text-decoration: none;
+}
+
+.tab.active {
+    border-color: var(--accent);
+    background: var(--card);
+    color: #fff;
+}
+
+/* API reference */
+code,
+pre {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+#api-panel code {
+    color: #fff;
+}
+
+#api-panel h3 {
+    margin: 1.4rem 0 0.6rem;
+    font-size: 1rem;
+    color: var(--muted);
+}
+
+.endpoint {
+    margin: 0 0 0.75rem;
+    padding: 0.75rem 1rem;
+    background: #1a1a2e;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+
+.endpoint p {
+    margin: 0.4rem 0 0;
+}
+
+.ep-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0 0 0.2rem;
+}
+
+.ep-head code {
+    font-size: 0.95rem;
+}
+
+.method {
+    display: inline-block;
+    min-width: 3.6rem;
+    text-align: center;
+    padding: 0.15rem 0.3rem;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: bold;
+    letter-spacing: 0.03em;
+}
+
+.m-get    { color: #2ecc71; border: 1px solid #2ecc71; }
+.m-post   { color: #f39c12; border: 1px solid #f39c12; }
+.m-patch  { color: #5dade2; border: 1px solid #5dade2; }
+.m-delete { color: var(--accent); border: 1px solid var(--accent); }
+
+.auth-tag {
+    color: var(--muted);
+    font-size: 0.72rem;
+    border: 1px solid var(--border);
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+}
+
+#api-panel pre {
+    margin: 0.6rem 0 0;
+    padding: 0.6rem 0.75rem;
+    background: #131326;
+    border: 1px solid #2a2a4a;
+    border-radius: 4px;
+    font-size: 0.78rem;
+    overflow-x: auto;
+}
+
+#api-panel pre.flow {
+    margin-top: 0.75rem;
 }
