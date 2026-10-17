@@ -1,4 +1,4 @@
-use crate::auth::{AuthUser, extract_bearer_token, unix_now};
+use crate::auth::{AuthDevice, AuthUser, extract_bearer_token, unix_now};
 use crate::errors::AppError;
 use crate::state::AppState;
 
@@ -15,12 +15,6 @@ use serde::{Deserialize, Serialize};
 
 use uuid::Uuid;
 
-#[derive(Debug, Serialize)]
-pub struct AuthDevice {
-    id: i64,
-    name: String,
-}
-
 #[derive(Debug, Deserialize)]
 pub struct CreateDeviceRequest {
     pub name: String,
@@ -31,6 +25,7 @@ pub struct CreateDeviceResponse {
     device: DeviceResponse,
     token: String,
 }
+
 #[derive(Debug, Deserialize)]
 pub struct DeviceStateRequest {
     state: String,
@@ -38,10 +33,10 @@ pub struct DeviceStateRequest {
 
 #[derive(Debug, Serialize)]
 pub struct DeviceResponse {
-    pub id: i64,
-    pub name: String,
-    pub state: String,
-    pub updated_at: i64,
+    id: i64,
+    name: String,
+    state: String,
+    updated_at: i64,
 }
 
 impl FromRequestParts<AppState> for AuthDevice {

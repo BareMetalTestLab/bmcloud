@@ -1,6 +1,5 @@
 const authSection = document.getElementById('auth');
 const panelSection = document.getElementById('panel');
-const loginInput = document.getElementById('login');
 const emailInput = document.getElementById('email');
 const passwordInput = document.getElementById('password');
 const authMsg = document.getElementById('auth-msg');
@@ -38,10 +37,9 @@ function clearAuthMsg() {
 async function doRegister() {
     clearAuthMsg();
     const resp = await api('/register', 'POST', {
-        login: loginInput.value.trim(),
         email: emailInput.value.trim(),
         password: passwordInput.value
-    }, false);
+    });
     if (resp.status === 201) {
         await doLogin();
         return;
@@ -227,7 +225,7 @@ async function createDevice() {
     try {
         const resp = await api('/devices', 'POST', { name });
         if (resp.status === 201) {
-            const body = await resp.json(); // { device, token } — the token is never shown again
+            const body = await resp.json(); // { device, token } - the token is never shown again
             msg.textContent = '';
             newDeviceInput.value = '';
             newTokenName.textContent = body.device.name;
@@ -254,7 +252,7 @@ async function copyToken() {
         await navigator.clipboard.writeText(value);
         ok = true;
     } catch (e) {
-        // clipboard API needs a secure context (https / localhost) — fall back for plain http
+        // clipboard API needs a secure context (https / localhost) - fall back for plain http
         const ta = document.createElement('textarea');
         ta.value = value;
         document.body.appendChild(ta);
@@ -262,7 +260,7 @@ async function copyToken() {
         ok = document.execCommand('copy');
         ta.remove();
     }
-    copyMsg.textContent = ok ? 'copied!' : 'copy failed — select it manually';
+    copyMsg.textContent = ok ? 'copied!' : 'copy failed - select it manually';
     clearTimeout(copyTimer);
     copyTimer = setTimeout(() => { copyMsg.textContent = ''; }, 2000);
 }

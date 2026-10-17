@@ -11,8 +11,6 @@ pub enum AppError {
     NotFound,
     InvalidEmail,
     EmailTaken,
-    LoginTaken,
-    InvalidLogin,
     WeakPassword,
     PasswordNoDigit,
     PasswordNoLetter,
@@ -25,6 +23,8 @@ pub enum AppError {
     Database,
     InvalidDeviceName,
     InvalidDeviceState,
+    InvalidFirmwareName,
+    InvalidJobStatus,
 }
 
 #[derive(Debug, Serialize)]
@@ -45,8 +45,6 @@ impl IntoResponse for AppError {
             AppError::NotFound => (StatusCode::NOT_FOUND, "not found"),
             AppError::InvalidEmail => (StatusCode::BAD_REQUEST, "invalid email"),
             AppError::EmailTaken => (StatusCode::CONFLICT, "email is already taken"),
-            AppError::LoginTaken => (StatusCode::CONFLICT, "login is already taken"),
-            AppError::InvalidLogin => (StatusCode::BAD_REQUEST, "login must not be empty"),
             AppError::WeakPassword => (
                 StatusCode::BAD_REQUEST,
                 "password must be at least 8 characters",
@@ -78,6 +76,11 @@ impl IntoResponse for AppError {
             AppError::InvalidDeviceState => (
                 StatusCode::BAD_REQUEST,
                 "invalid device state, expected offline|online|error|busy",
+            ),
+            AppError::InvalidFirmwareName => (StatusCode::BAD_REQUEST, "invalid firmware name"),
+            AppError::InvalidJobStatus => (
+                StatusCode::BAD_REQUEST,
+                "invalid job status expected done|failed",
             ),
         };
 

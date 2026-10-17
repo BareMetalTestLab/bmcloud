@@ -22,7 +22,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Clone)]
 pub struct RegisterRequest {
-    pub login: String,
     pub email: String,
     pub password: String,
 }
@@ -30,7 +29,6 @@ pub struct RegisterRequest {
 #[derive(Debug, Serialize)]
 pub struct UserResponse {
     pub id: i64,
-    pub login: String,
     pub email: String,
 }
 
@@ -71,9 +69,6 @@ impl RegisterRequest {
         }
         if !self.password.chars().any(|c| c.is_ascii_punctuation()) {
             return Err(AppError::PasswordNoPunctuation);
-        }
-        if self.login.is_empty() {
-            return Err(AppError::InvalidLogin);
         }
         Ok(())
     }
@@ -118,7 +113,7 @@ fn current_user(state: &AppState, headers: &HeaderMap) -> Result<AuthUser, AppEr
     let token = extract_session_token(headers)?;
 
     match db.query_row(
-        "SELECT u.id, u.login, u.email
+        "SELECT u.id, u.email
              FROM sessions s
              JOIN users u ON u.id = s.user_id
              WHERE s.token = ?1 AND s.created_at > ?2",
@@ -126,8 +121,7 @@ fn current_user(state: &AppState, headers: &HeaderMap) -> Result<AuthUser, AppEr
         |row| {
             Ok(AuthUser {
                 id: row.get(0)?,
-                login: row.get(1)?,
-                email: row.get(2)?,
+                email: row.get(1)?,
             })
         },
     ) {
@@ -153,15 +147,12 @@ pub async fn register(
     let db = state.db.lock().unwrap();
 
     match db.execute(
-        "INSERT INTO users (login, email, password_hash) VALUES (?1, ?2, ?3)",
-        params![payload.login.clone(), payload.email.clone(), password_hash],
+        "INSERT INTO users (email, password_hash) VALUES (?1, ?2)",
+        params![payload.email.clone(), password_hash],
     ) {
         Ok(_) => {}
         Err(rusqlite::Error::SqliteFailure(_, Some(msg))) if msg.contains("users.email") => {
             return Err(AppError::EmailTaken);
-        }
-        Err(rusqlite::Error::SqliteFailure(_, Some(msg))) if msg.contains("users.login") => {
-            return Err(AppError::LoginTaken);
         }
         Err(e) => return Err(e.into()),
     };
@@ -172,7 +163,6 @@ pub async fn register(
         StatusCode::CREATED,
         Json(UserResponse {
             id,
-            login: payload.login,
             email: payload.email,
         }),
     ))
@@ -185,16 +175,15 @@ pub async fn login(
     let db = state.db.lock().unwrap();
 
     let (user, password_hash): (_, String) = match db.query_row(
-        "SELECT id, login, email, password_hash FROM users WHERE email = ?1",
+        "SELECT id, email, password_hash FROM users WHERE email = ?1",
         params![payload.email],
         |row| {
             Ok((
                 UserResponse {
                     id: row.get(0)?,
-                    login: row.get(1)?,
-                    email: row.get(2)?,
+                    email: row.get(1)?,
                 },
-                row.get(3)?,
+                row.get(2)?,
             ))
         },
     ) {
@@ -261,7 +250,6 @@ pub async fn logout(
 pub async fn me(user: AuthUser) -> Json<UserResponse> {
     Json(UserResponse {
         id: user.id,
-        login: user.login,
         email: user.email,
     })
 }
@@ -275,7 +263,6 @@ mod tests {
 
     fn valid_request() -> RegisterRequest {
         RegisterRequest {
-            login: "anna".to_string(),
             email: "anna@mail.ru".to_string(),
             password: "SuperSecret1!".to_string(),
         }
@@ -376,12 +363,10 @@ mod tests {
         let state = AppState::new(db::init_memory().unwrap());
 
         let req1 = RegisterRequest {
-            login: "anna1".to_string(),
             email: "anna1@mail.ru".to_string(),
             ..valid_request()
         };
         let req2 = RegisterRequest {
-            login: "anna2".to_string(),
             email: "anna2@mail.ru".to_string(),
             ..valid_request()
         };
@@ -416,7 +401,7 @@ mod tests {
         assert!(hash.starts_with("$argon2id"));
 
         assert_eq!(response.1.0.id, 1);
-        assert_eq!(response.1.0.login, "anna");
+        assert_eq!(response.1.0.email, "anna@mail.ru");
     }
 
     #[tokio::test]

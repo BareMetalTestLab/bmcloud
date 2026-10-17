@@ -18,7 +18,6 @@ fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            login TEXT NOT NULL UNIQUE,
             email TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL
         )",
@@ -54,6 +53,31 @@ fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
         "CREATE TABLE IF NOT EXISTS device_state (
             device_id INTEGER PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
             state TEXT NOT NULL CHECK (state IN ('offline','online','error','busy')),
+            updated_at INTEGER NOT NULL
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS firmwares (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            data BLOB NOT NULL,
+            created_at INTEGER NOT NULL
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS flash_jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+            firmware_id INTEGER NOT NULL REFERENCES firmwares(id) ON DELETE CASCADE,
+            status TEXT NOT NULL CHECK (status IN ('pending','flashing','done','failed')),
+            error TEXT,
+            created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         )",
         [],

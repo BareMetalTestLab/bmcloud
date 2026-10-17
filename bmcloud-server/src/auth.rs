@@ -1,12 +1,17 @@
 use crate::errors::AppError;
-use std::time::{SystemTime, UNIX_EPOCH};
 use axum::http::HeaderMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]
 pub struct AuthUser {
     pub id: i64,
-    pub login: String,
     pub email: String,
+}
+
+#[derive(Debug)]
+pub struct AuthDevice {
+    pub id: i64,
+    pub name: String,
 }
 
 pub fn unix_now() -> i64 {

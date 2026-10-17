@@ -14,7 +14,7 @@ async fn main() {
     // 1. User with farm: 409 = "already exist" - it's not error
     let resp = client
         .post(format!("{BASE}/register"))
-        .json(&json!({ "login": "farmer", "email": EMAIL, "password": PASSWORD }))
+        .json(&json!({ "email": EMAIL, "password": PASSWORD }))
         .send()
         .await
         .unwrap();

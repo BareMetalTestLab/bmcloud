@@ -18,16 +18,10 @@ async fn spawn_app() -> String {
     format!("http://{addr}")
 }
 
-async fn register_and_login(
-    client: &reqwest::Client,
-    base: &str,
-    login: &str,
-    email: &str,
-) -> String {
+async fn register_and_login(client: &reqwest::Client, base: &str, email: &str) -> String {
     client
         .post(format!("{base}/register"))
         .json(&json!({
-            "login": login,
             "email": email,
             "password": "SuperSecret1!"
         }))
@@ -51,39 +45,6 @@ async fn register_and_login(
 }
 
 #[tokio::test]
-async fn register_returns_409_for_duplicate_login() {
-    let base = spawn_app().await;
-
-    // 1. Register a new user
-    let response = reqwest::Client::new()
-        .post(format!("{base}/register"))
-        .json(&json!({
-            "login": "anna",
-            "email": "anna1@mail.ru",
-            "password": "SuperSecret1!"
-        }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::CREATED);
-
-    // 2. Register the same user again
-    let response = reqwest::Client::new()
-        .post(format!("{base}/register"))
-        .json(&json!({
-            "login": "anna",
-            "email": "anna2@mail.ru",
-            "password": "SuperSecret1!"
-        }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::CONFLICT);
-    let body: serde_json::Value = response.json().await.unwrap();
-    assert_eq!(body["error"], "login is already taken");
-}
-
-#[tokio::test]
 async fn login_returns_401_for_unknown_email() {
     let base = spawn_app().await;
 
@@ -91,7 +52,6 @@ async fn login_returns_401_for_unknown_email() {
     let response = reqwest::Client::new()
         .post(format!("{base}/register"))
         .json(&json!({
-            "login": "anna",
             "email": "anna@mail.ru",
             "password": "SuperSecret1!"
         }))
@@ -121,7 +81,6 @@ async fn login_returns_401_and_invalid_password() {
     let response = reqwest::Client::new()
         .post(format!("{base}/register"))
         .json(&json!({
-            "login": "anna",
             "email": "anna@mail.ru",
             "password": "SuperSecret1!"
         }))
@@ -150,7 +109,6 @@ async fn register_returns_400_for_invalid_password() {
     let response = reqwest::Client::new()
         .post(format!("{base}/register"))
         .json(&json!({
-            "login": "anna",
             "email": "anna@mail.ru",
             "password": "short"
         }))
@@ -168,7 +126,6 @@ async fn duplicate_email_returns_409() {
     let base = spawn_app().await;
     let client = reqwest::Client::new();
     let payload = json!({
-        "login": "anna",
         "email": "anna@mail.ru",
         "password": "SuperSecret1!"
     });
@@ -233,7 +190,7 @@ async fn login_returns_token_and_me_works() {
     let client = reqwest::Client::new();
 
     // 1. register new valid user and login to get a token
-    let token = register_and_login(&reqwest::Client::new(), &base, "anna", "anna@mail.ru").await;
+    let token = register_and_login(&reqwest::Client::new(), &base, "anna@mail.ru").await;
 
     // 2. Call /me with the token
     let response = client
@@ -244,7 +201,6 @@ async fn login_returns_token_and_me_works() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body: serde_json::Value = response.json().await.unwrap();
-    assert_eq!(body["login"], "anna");
     assert_eq!(body["email"], "anna@mail.ru");
 
     // 3. Logout
@@ -309,7 +265,7 @@ async fn device_create_returns_201_and_device_can_be_listed() {
     let base = spawn_app().await;
 
     // 1. register new valid user and login to get a token
-    let token = register_and_login(&reqwest::Client::new(), &base, "anna", "anna@mail.ru").await;
+    let token = register_and_login(&reqwest::Client::new(), &base, "anna@mail.ru").await;
 
     // 2. Create two devices
     let response = reqwest::Client::new()
@@ -373,7 +329,7 @@ async fn device_create_returns_201_and_device_can_be_listed() {
 async fn device_create_without_name_returns_400() {
     let base = spawn_app().await;
 
-    let token = register_and_login(&reqwest::Client::new(), &base, "anna", "anna@mail.ru").await;
+    let token = register_and_login(&reqwest::Client::new(), &base, "anna@mail.ru").await;
 
     let response = reqwest::Client::new()
         .post(format!("{base}/devices"))
@@ -405,7 +361,7 @@ async fn device_create_with_unknown_token_returns_401() {
 async fn delete_unknown_device_returns_404() {
     let base = spawn_app().await;
 
-    let token = register_and_login(&reqwest::Client::new(), &base, "anna", "anna@mail.ru").await;
+    let token = register_and_login(&reqwest::Client::new(), &base, "anna@mail.ru").await;
 
     let response = reqwest::Client::new()
         .delete(format!("{base}/device/7777777"))
@@ -422,8 +378,8 @@ async fn devices_of_other_users_are_invisible() {
     let base = spawn_app().await;
     let client = reqwest::Client::new();
 
-    let token_a = register_and_login(&client, &base, "anna", "anna@mail.ru").await;
-    let token_b = register_and_login(&client, &base, "paul", "paul@mail.ru").await;
+    let token_a = register_and_login(&client, &base, "anna@mail.ru").await;
+    let token_b = register_and_login(&client, &base, "paul@mail.ru").await;
 
     // A create a device
     let response = client
@@ -464,7 +420,7 @@ async fn device_can_authenticate_with_its_token() {
     let base = spawn_app().await;
     let client = reqwest::Client::new();
 
-    let token = register_and_login(&client, &base, "anna", "anna@mail.ru").await;
+    let token = register_and_login(&client, &base, "anna@mail.ru").await;
 
     // 1. Create a device and remember its device token
     let response = client
@@ -510,7 +466,7 @@ async fn user_token_is_not_a_device_token() {
     let base = spawn_app().await;
     let client = reqwest::Client::new();
 
-    let token = register_and_login(&client, &base, "anna", "anna@mail.ru").await;
+    let token = register_and_login(&client, &base, "anna@mail.ru").await;
 
     let response = reqwest::Client::new()
         .get(format!("{base}/device/me"))
@@ -526,7 +482,7 @@ async fn deleted_device_token_stops_working() {
     let base = spawn_app().await;
     let client = reqwest::Client::new();
 
-    let token = register_and_login(&client, &base, "anna", "anna@mail.ru").await;
+    let token = register_and_login(&client, &base, "anna@mail.ru").await;
 
     let response = client
         .post(format!("{base}/devices"))
@@ -562,7 +518,7 @@ async fn device_reports_state_and_owner_reads_it() {
     let base = spawn_app().await;
     let client = reqwest::Client::new();
 
-    let token = register_and_login(&client, &base, "anna", "anna@mail.ru").await;
+    let token = register_and_login(&client, &base, "anna@mail.ru").await;
 
     // 1. Create a device
     let response = client
@@ -615,8 +571,8 @@ async fn state_of_foreign_device_returns_404() {
     let base = spawn_app().await;
     let client = reqwest::Client::new();
 
-    let token_a = register_and_login(&client, &base, "anna", "anna@mail.ru").await;
-    let token_b = register_and_login(&client, &base, "paul", "paul@mail.ru").await;
+    let token_a = register_and_login(&client, &base, "anna@mail.ru").await;
+    let token_b = register_and_login(&client, &base, "paul@mail.ru").await;
 
     // A creates a device and reports a state
     let response = client
@@ -652,7 +608,7 @@ async fn state_of_foreign_device_returns_404() {
 async fn user_token_cannot_report_state() {
     let base = spawn_app().await;
 
-    let token = register_and_login(&reqwest::Client::new(), &base, "anna", "anna@mail.ru").await;
+    let token = register_and_login(&reqwest::Client::new(), &base, "anna@mail.ru").await;
 
     let response = reqwest::Client::new()
         .post(format!("{base}/device/state"))
@@ -671,7 +627,7 @@ async fn state_without_report_returns_404() {
 
     let client = reqwest::Client::new();
 
-    let token = register_and_login(&client, &base, "anna", "anna@mail.ru").await;
+    let token = register_and_login(&client, &base, "anna@mail.ru").await;
 
     let response = client
         .get(format!("{base}/device/7777777/state"))
@@ -688,7 +644,7 @@ async fn empty_state_returns_400() {
 
     let client = reqwest::Client::new();
 
-    let token = register_and_login(&client, &base, "anna", "anna@mail.ru").await;
+    let token = register_and_login(&client, &base, "anna@mail.ru").await;
 
     // A creates a device
     let response = client
@@ -731,7 +687,7 @@ async fn rename_returns_204_and_device_sees_new_name() {
 
     let client = reqwest::Client::new();
 
-    let token = register_and_login(&client, &base, "anna", "anna@mail.ru").await;
+    let token = register_and_login(&client, &base, "anna@mail.ru").await;
 
     // A creates a device
     let response = client
@@ -772,7 +728,7 @@ async fn rename_with_invalid_token_returns_401() {
 
     let client = reqwest::Client::new();
 
-    let token = register_and_login(&client, &base, "anna", "anna@mail.ru").await;
+    let token = register_and_login(&client, &base, "anna@mail.ru").await;
 
     // A creates a device
     let response = client
@@ -801,7 +757,7 @@ async fn rename_unknown_device_returns_404() {
 
     let client = reqwest::Client::new();
 
-    let token = register_and_login(&client, &base, "anna", "anna@mail.ru").await;
+    let token = register_and_login(&client, &base, "anna@mail.ru").await;
 
     let response = client
         .patch(format!("{base}/device/7777777"))
@@ -819,7 +775,7 @@ async fn rename_with_empty_name_returns_400() {
 
     let client = reqwest::Client::new();
 
-    let token = register_and_login(&client, &base, "anna", "anna@mail.ru").await;
+    let token = register_and_login(&client, &base, "anna@mail.ru").await;
 
     // A creates a device
     let response = client
@@ -845,18 +801,114 @@ async fn rename_with_empty_name_returns_400() {
 #[tokio::test]
 async fn cookie_logout_works_without_bearer() {
     let base = spawn_app().await;
-    let client = reqwest::Client::builder().cookie_store(true).build().unwrap();
+    let client = reqwest::Client::builder()
+        .cookie_store(true)
+        .build()
+        .unwrap();
 
-    client.post(format!("{base}/register"))
-        .json(&json!({ "login": "anna", "email": "anna@mail.ru", "password": "SuperSecret1!" }))
-        .send().await.unwrap();
-    client.post(format!("{base}/login"))
+    client
+        .post(format!("{base}/register"))
         .json(&json!({ "email": "anna@mail.ru", "password": "SuperSecret1!" }))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/login"))
+        .json(&json!({ "email": "anna@mail.ru", "password": "SuperSecret1!" }))
+        .send()
+        .await
+        .unwrap();
 
     let resp = client.post(format!("{base}/logout")).send().await.unwrap();
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 
     let resp = client.get(format!("{base}/devices")).send().await.unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn firmware_travels_to_device_and_back() {
+    let base = spawn_app().await;
+    let client = reqwest::Client::new();
+    let token = register_and_login(&client, &base, "anna@mail.ru").await;
+
+    // device (= programmer)
+    let resp = client
+        .post(format!("{base}/devices"))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&json!({ "name": "blackmagic-c5" }))
+        .send()
+        .await
+        .unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let device_id = body["device"]["id"].as_i64().unwrap();
+    let device_token = body["token"].as_str().unwrap().to_string();
+
+    // 1. upload: just body + name in query
+    let firmware: Vec<u8> = (0..1024).map(|i| (i % 251) as u8).collect();
+    let resp = client
+        .post(format!("{base}/device/{device_id}/flash?name=app.bin"))
+        .header("Content-Type", "application/octet-stream")
+        .header("Authorization", format!("Bearer {token}"))
+        .body(firmware.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let fw: serde_json::Value = resp.json().await.unwrap();
+    let firmware_id = fw["firmware_id"].as_i64().unwrap();
+    assert_eq!(fw["size"], 1024);
+
+    // 2. programmer get the task
+    let resp = client
+        .get(format!("{base}/device/job"))
+        .header("Authorization", format!("Bearer {device_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let job: serde_json::Value = resp.json().await.unwrap();
+    let job_id = job["job_id"].as_i64().unwrap();
+    assert_eq!(job["firmware_id"], firmware_id);
+
+    // 3. repeat poll - there is not tasks
+    let resp = client
+        .get(format!("{base}/device/job"))
+        .header("Authorization", format!("Bearer {device_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+    // 4. download - the same bytes
+    let resp = client
+        .get(format!("{base}/device/firmware/{firmware_id}"))
+        .header("Authorization", format!("Bearer {device_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = resp.bytes().await.unwrap();
+    assert_eq!(&bytes[..], &firmware[..]);
+
+    // 5. success report
+    let resp = client
+        .post(format!("{base}/device/job/{job_id}"))
+        .header("Authorization", format!("Bearer {device_token}"))
+        .json(&json!({ "status": "done" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    // 6. user got done
+    let resp = client
+        .get(format!("{base}/jobs"))
+        .header("Authorization", format!("Bearer {token}"))
+        .send()
+        .await
+        .unwrap();
+    let jobs: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(jobs[0]["status"], "done");
+    assert_eq!(jobs[0]["fw_name"], "app.bin");
 }
