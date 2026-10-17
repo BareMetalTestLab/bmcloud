@@ -9,6 +9,7 @@
     --border: #444;
     --muted: #aaa;
     --text: #eee;
+    --column: 720px;
 }
 
 body {
@@ -21,14 +22,15 @@ body {
 }
 
 h1 {
-    margin: 0 0 1.5rem;
+    max-width: var(--column);
+    margin: 0 auto 1.5rem;
     font-size: 2rem;
 }
 
 /* Auth and devices panel drawn as cards */
 section {
-    max-width: 720px;
-    margin-bottom: 1.5rem;
+    max-width: var(--column);
+    margin: 0 auto 1.5rem;
     padding: 1.5rem 2rem;
     background: var(--card);
     border: 1px solid var(--border);
@@ -40,7 +42,8 @@ section h2 {
     font-size: 1.25rem;
 }
 
-input {
+input,
+select {
     padding: 0.5rem 0.75rem;
     background: var(--fill);
     color: var(--text);
@@ -52,12 +55,14 @@ input::placeholder {
     color: var(--muted);
 }
 
-input:focus {
+input:focus,
+select:focus {
     outline: none;
     border-color: #888;
 }
 
-button {
+button,
+.file-btn {
     padding: 0.5rem 1.25rem;
     background: var(--fill);
     color: var(--text);
@@ -67,13 +72,46 @@ button {
     cursor: pointer;
 }
 
-button:hover {
+button:hover,
+.file-btn:hover {
     background: #12386b;
     border-color: #888;
 }
 
-button:active {
+button:active,
+.file-btn:active {
     transform: scale(0.97);
+}
+
+/* File picker drawn as a button: the native input sits inside the label but is
+   clipped out of sight (still focusable - Tab + Enter opens the dialog) */
+.file-btn {
+    display: inline-block; /* labels are display:inline, transform needs a box */
+    line-height: 1.2;
+}
+
+.file-btn:focus-within {
+    outline: none;
+    border-color: #888;
+}
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.file-name {
+    color: var(--muted);
+    font-size: 0.85rem;
+    word-break: break-all;
 }
 
 table {
@@ -100,6 +138,12 @@ td {
 .offline { color: var(--muted); }
 .error   { color: var(--accent); font-weight: bold; }
 .busy    { color: #f39c12; }
+
+/* Flash job statuses in the jobs table */
+.pending  { color: var(--muted); }
+.flashing { color: #f39c12; }
+.done     { color: #2ecc71; font-weight: bold; }
+.failed   { color: var(--accent); font-weight: bold; }
 
 /* Compact destructive action in the devices table */
 .device-del {
@@ -147,6 +191,7 @@ td {
 }
 
 #msg { color: var(--muted); min-height: 1.2em; }
+#jobs-msg { color: var(--muted); min-height: 1.2em; }
 #auth-msg { min-height: 1.2em; }
 #auth-msg.err { color: var(--accent); }
 

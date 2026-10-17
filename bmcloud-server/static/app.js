@@ -13,6 +13,14 @@ const newTokenName = document.getElementById('new-token-name');
 const newTokenValue = document.getElementById('new-token-value');
 const copyTokenBtn = document.getElementById('copy-token-btn');
 const copyMsg = document.getElementById('copy-msg');
+const jobsPanel = document.getElementById('jobs-panel');
+const jobsTable = document.getElementById('jobs');
+const jobsBody = document.getElementById('jobs-body');
+const jobsMsg = document.getElementById('jobs-msg');
+const flashDeviceSelect = document.getElementById('flash-device');
+const firmwareFileInput = document.getElementById('firmware-file');
+const firmwareFileName = document.getElementById('firmware-file-name');
+const flashBtn = document.getElementById('flash-btn');
 
 async function api(path, method, body) {
     const headers = {};
@@ -64,10 +72,12 @@ async function doLogin() {
 
 let pollTimer = null;
 let editing = null; // id of the device whose name is currently being renamed
+let devicesById = new Map(); // last known devices, to resolve names in the jobs table
 
 async function poll() {
     try {
         await load();
+        await loadJobs();
     } catch (e) {
         msg.textContent = 'Server unreachable';
     }
@@ -78,6 +88,7 @@ function enter() {
     passwordInput.value = '';
     authSection.hidden = true;
     panelSection.hidden = false;
+    jobsPanel.hidden = false;
     pollTimer = setTimeout(poll, 0)
 }
 
@@ -85,10 +96,16 @@ async function doLogout() {
     await api('/logout', 'POST');
     authSection.hidden = false;
     panelSection.hidden = true;
+    jobsPanel.hidden = true;
     table.hidden = true;
     tbody.replaceChildren();
+    jobsTable.hidden = true;
+    jobsBody.replaceChildren();
     newTokenBox.hidden = true;
     msg.textContent = '';
+    jobsMsg.textContent = '';
+    firmwareFileInput.value = '';
+    renderFileName();
 
     clearTimeout(pollTimer);
     pollTimer = null;
@@ -110,10 +127,13 @@ async function load() {
     if (resp.status === 401) {
         authSection.hidden = false;
         panelSection.hidden = true;
+        jobsPanel.hidden = true;
         authError('Session expired, log in again');
         return;
     }
     const devices = await resp.json();
+    devicesById = new Map(devices.map((d) => [d.id, d]));
+    renderDeviceSelect(devices);
     msg.textContent = devices.length === 0 ? 'No devices yet' : '';
     table.hidden = false;
     tbody.replaceChildren();
@@ -204,6 +224,7 @@ async function deleteDevice(id, btn) {
         if (resp.status === 204) {
             msg.textContent = '';
             await load();
+            await loadJobs();
             return;
         }
         msg.textContent = 'Failed to delete device ' + id;
@@ -243,6 +264,109 @@ async function createDevice() {
     }
 }
 
+async function loadJobs() {
+    const resp = await api('/jobs', 'GET');
+    if (resp.status === 401) {
+        authSection.hidden = false;
+        panelSection.hidden = true;
+        jobsPanel.hidden = true;
+        authError('Session expired, log in again');
+        return;
+    }
+    const jobs = await resp.json();
+    jobsMsg.textContent = jobs.length === 0 ? 'No jobs yet' : '';
+    jobsTable.hidden = false;
+    jobsBody.replaceChildren();
+    for (const j of jobs) {
+        const tr = document.createElement('tr');
+
+        const idTd = document.createElement('td');
+        idTd.textContent = j.job_id;
+        tr.appendChild(idTd);
+
+        const deviceTd = document.createElement('td');
+        deviceTd.textContent = devicesById.get(j.device_id)?.name ?? '#' + j.device_id;
+        tr.appendChild(deviceTd);
+
+        const fwTd = document.createElement('td');
+        fwTd.textContent = j.fw_name;
+        tr.appendChild(fwTd);
+
+        const statusTd = document.createElement('td');
+        statusTd.textContent = j.status;
+        statusTd.className = j.status;
+        tr.appendChild(statusTd);
+
+        const errTd = document.createElement('td');
+        errTd.textContent = j.error ?? '';
+        tr.appendChild(errTd);
+
+        jobsBody.appendChild(tr);
+    }
+}
+
+// Rebuilt on every devices refresh; keeps the current selection if the device still exists.
+function renderDeviceSelect(devices) {
+    const prev = flashDeviceSelect.value;
+    flashDeviceSelect.replaceChildren();
+    for (const d of devices) {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = d.name;
+        flashDeviceSelect.appendChild(opt);
+    }
+    if (prev !== '' && devices.some((d) => String(d.id) === prev)) {
+        flashDeviceSelect.value = prev;
+    }
+}
+
+// The flash endpoint takes the raw file as the body and its name in the query -
+// the shared api() helper only speaks JSON, so this one is a plain fetch.
+async function createJob() {
+    const deviceId = flashDeviceSelect.value;
+    if (deviceId === '') {
+        jobsMsg.textContent = 'No device to flash - create one first';
+        return;
+    }
+    const file = firmwareFileInput.files[0];
+    if (!file) {
+        jobsMsg.textContent = 'Choose a firmware file';
+        return;
+    }
+    flashBtn.disabled = true;
+    try {
+        const resp = await fetch('/device/' + deviceId + '/flash?name=' + encodeURIComponent(file.name), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: file
+        });
+        if (resp.status === 201) {
+            jobsMsg.textContent = '';
+            firmwareFileInput.value = '';
+            renderFileName();
+            await loadJobs();
+            return;
+        }
+        const err = await resp.json().catch(() => null);
+        jobsMsg.textContent = err ? err.error : 'Failed to create job';
+    } catch (e) {
+        jobsMsg.textContent = 'Server unreachable';
+    } finally {
+        flashBtn.disabled = false;
+    }
+}
+
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function renderFileName() {
+    const file = firmwareFileInput.files[0];
+    firmwareFileName.textContent = file ? file.name + ' · ' + formatSize(file.size) : 'no file chosen';
+}
+
 let copyTimer = null;
 
 async function copyToken() {
@@ -270,6 +394,9 @@ document.getElementById('register-btn').addEventListener('click', doRegister);
 document.getElementById('logout-btn').addEventListener('click', doLogout);
 addDeviceBtn.addEventListener('click', createDevice);
 copyTokenBtn.addEventListener('click', copyToken);
+flashBtn.addEventListener('click', createJob);
+firmwareFileInput.addEventListener('change', renderFileName);
+renderFileName();
 newDeviceInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
         e.preventDefault();
