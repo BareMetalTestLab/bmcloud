@@ -105,7 +105,8 @@
 
         <div class="endpoint">
             <p class="ep-head"><span class="method m-get">GET</span><code>/jobs</code> <span class="auth-tag">user</span></p>
-            <p>Your flash jobs, newest first. Status moves pending → flashing → done | failed.</p>
+            <p>Your flash jobs, newest first. Status moves pending → flashing → done | failed;
+                a job stuck in flashing for 10 minutes without a report is failed on listing.</p>
             <pre>200 → [ { "job_id": 3, "device_id": 1, "fw_name": "app.bin", "status": "done", "error": null } ]</pre>
         </div>
 
@@ -144,7 +145,9 @@ Content-Type: application/octet-stream
         <div class="endpoint">
             <p class="ep-head"><span class="method m-get">GET</span><code>/device/job</code> <span class="auth-tag">device</span></p>
             <p>Claim the oldest pending job — it atomically moves to flashing, so a second poll
-                will not see it. Poll every few seconds; 404 simply means no work.</p>
+                will not see it. Poll every few seconds; 404 simply means no work.
+                A claimed job that gets no report within 10 minutes is assumed dead and marked
+                failed — there are no automatic retries, re-flash manually if needed.</p>
             <pre>200 → { "job_id": 1, "firmware_id": 1 }
 404 no pending jobs</pre>
         </div>

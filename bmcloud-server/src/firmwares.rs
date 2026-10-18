@@ -13,6 +13,10 @@ use rusqlite::params;
 
 use serde::{Deserialize, Serialize};
 
+/// How long a claimed job may stay in `flashing` without a report before it
+/// is considered dead (the device crashed or rebooted mid-flash) and failed.
+const FLASH_REPORT_TIMEOUT_SECS: i64 = 10 * 60;
+
 #[derive(Debug, Deserialize)]
 pub struct FlashQuery {
     name: String,
@@ -104,6 +108,18 @@ pub async fn device_next_job(
     device: AuthDevice,
 ) -> Result<Json<DeviceJobResponse>, AppError> {
     let db = state.db.lock().unwrap();
+    let now = unix_now();
+
+    // A claimed job whose device died mid-flash never reports back, so it is
+    // reaped here instead of flashing forever: straight to failed, no retry -
+    // the user re-flashes manually if needed.
+    db.execute(
+        "UPDATE flash_jobs SET status = 'failed', updated_at = ?1,
+              error = 'no report from device'
+              WHERE device_id = ?2 AND status = 'flashing'
+              AND updated_at <= ?1 - ?3",
+        params![now, device.id, FLASH_REPORT_TIMEOUT_SECS],
+    )?;
 
     let job: Option<(i64, i64)> = db
         .query_row(
@@ -125,7 +141,7 @@ pub async fn device_next_job(
 
     db.execute(
         "UPDATE flash_jobs SET status = 'flashing', updated_at = ?2 WHERE id = ?1",
-        params![job_id, unix_now()],
+        params![job_id, now],
     )?;
 
     Ok(Json(DeviceJobResponse {
@@ -183,6 +199,17 @@ pub async fn list_jobs(
 ) -> Result<Json<Vec<JobResponse>>, AppError> {
     let db = state.db.lock().unwrap();
 
+    // The same reap as in device_next_job, from the user's side: a job whose
+    // device never came back fails here too, so the dashboard does not show
+    // an eternal "flashing" row.
+    db.execute(
+        "UPDATE flash_jobs SET status = 'failed', updated_at = ?1,
+              error = 'no report from device'
+              WHERE status = 'flashing' AND updated_at <= ?1 - ?2
+              AND device_id IN (SELECT id FROM devices WHERE user_id = ?3)",
+        params![unix_now(), FLASH_REPORT_TIMEOUT_SECS, user.id],
+    )?;
+
     let mut stmt = db.prepare(
         "SELECT j.id, j.device_id, f.name, j.status, j.error
               FROM flash_jobs j
@@ -210,4 +237,114 @@ pub async fn list_jobs(
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Json(jobs))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+
+    // A job claimed by a device that went silent: status flashing, last
+    // updated long before the report timeout.
+    fn silent_device_job(conn: &rusqlite::Connection) {
+        conn.execute(
+            "INSERT INTO users (email, password_hash) VALUES ('a@mail.ru', 'x')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO devices (user_id, name, token, created_at) VALUES (1, 'dev', 'tok', 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO firmwares (user_id, name, size, data, created_at)
+             VALUES (1, 'fw.bin', 1, X'01', 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO flash_jobs (device_id, firmware_id, status, error, created_at, updated_at)
+             VALUES (1, 1, 'flashing', NULL, 1, ?1)",
+            params![unix_now() - FLASH_REPORT_TIMEOUT_SECS - 1],
+        )
+        .unwrap();
+    }
+
+    fn test_device() -> AuthDevice {
+        AuthDevice {
+            id: 1,
+            name: "dev".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn stale_flashing_job_is_failed_without_retry() {
+        let state = AppState::new(db::init_memory().unwrap());
+        {
+            let conn = state.db.lock().unwrap();
+            silent_device_job(&conn);
+        }
+
+        // no pending work for the device - the stale job did not come back
+        let resp = device_next_job(State(state.clone()), test_device()).await;
+        assert_eq!(resp.unwrap_err(), AppError::NotFound);
+
+        let conn = state.db.lock().unwrap();
+        let (status, error): (String, Option<String>) = conn
+            .query_row(
+                "SELECT status, error FROM flash_jobs WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(status, "failed");
+        assert_eq!(error.as_deref(), Some("no report from device"));
+    }
+
+    #[tokio::test]
+    async fn stale_flashing_job_fails_in_the_user_job_list() {
+        let state = AppState::new(db::init_memory().unwrap());
+        {
+            let conn = state.db.lock().unwrap();
+            silent_device_job(&conn);
+        }
+
+        let jobs = list_jobs(
+            State(state.clone()),
+            AuthUser {
+                id: 1,
+                email: "a@mail.ru".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(jobs.0.len(), 1);
+        assert_eq!(jobs.0[0].status, "failed");
+        assert_eq!(jobs.0[0].error.as_deref(), Some("no report from device"));
+    }
+
+    #[tokio::test]
+    async fn fresh_flashing_job_is_not_reaped() {
+        let state = AppState::new(db::init_memory().unwrap());
+        {
+            let conn = state.db.lock().unwrap();
+            silent_device_job(&conn);
+            // the same job, but claimed just now - the timeout has not passed
+            conn.execute("UPDATE flash_jobs SET updated_at = ?1", params![unix_now()])
+                .unwrap();
+        }
+
+        let resp = device_next_job(State(state.clone()), test_device()).await;
+        // no pending jobs and the live flashing one is left alone
+        assert_eq!(resp.unwrap_err(), AppError::NotFound);
+        let conn = state.db.lock().unwrap();
+        let status: String = conn
+            .query_row("SELECT status FROM flash_jobs WHERE id = 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(status, "flashing");
+    }
 }
