@@ -13,8 +13,7 @@ use axum::{
 };
 
 use devices::{
-    device_create, device_delete, device_get_state, device_list, device_me, device_rename,
-    device_update_state,
+    device_create, device_delete, device_get_state, device_list, device_rename, device_update_state,
 };
 
 use firmwares::{
@@ -37,7 +36,6 @@ pub fn router(state: AppState) -> Router {
         .route("/devices", get(device_list).post(device_create))
         .route("/device/{id}", delete(device_delete).patch(device_rename))
         .route("/device/{id}/state", get(device_get_state))
-        .route("/device/me", get(device_me))
         .route("/device/state", post(device_update_state))
         .route("/device/{id}/flash", post(upload_firmware_and_create_job))
         .route("/device/firmware/{id}", get(device_download_firmware))

@@ -67,7 +67,9 @@
 
         <div class="endpoint">
             <p class="ep-head"><span class="method m-get">GET</span><code>/devices</code> <span class="auth-tag">user</span></p>
-            <p>All your devices with their last reported state (offline, online, error, busy).</p>
+            <p>All your devices with their last reported state (offline, online, error, busy).
+                The job poll doubles as a presence ping - a device not heard from for
+                30 seconds is shown offline.</p>
             <pre>200 → [ { "id": 1, "name": "blackmagic-c5", "state": "online", "updated_at": 1760000000 } ]</pre>
         </div>
 
@@ -130,11 +132,6 @@ Content-Type: application/octet-stream
         </p>
 
         <div class="endpoint">
-            <p class="ep-head"><span class="method m-get">GET</span><code>/device/me</code> <span class="auth-tag">device</span></p>
-            <pre>200 → { "id": 1, "name": "blackmagic-c5", "state": "online", "updated_at": 1760000000 }</pre>
-        </div>
-
-        <div class="endpoint">
             <p class="ep-head"><span class="method m-post">POST</span><code>/device/state</code> <span class="auth-tag">device</span></p>
             <p>Report the device state: offline, online, error or busy.</p>
             <pre>{ "state": "busy" }
@@ -146,6 +143,8 @@ Content-Type: application/octet-stream
             <p class="ep-head"><span class="method m-get">GET</span><code>/device/job</code> <span class="auth-tag">device</span></p>
             <p>Claim the oldest pending job — it atomically moves to flashing, so a second poll
                 will not see it. Poll every few seconds; 404 simply means no work.
+                Each poll also marks the device online (a reported 'error' stays sticky) - keep
+                polling during long flashes, or the device will show offline after 30 seconds.
                 A claimed job that gets no report within 10 minutes is assumed dead and marked
                 failed — there are no automatic retries, re-flash manually if needed.</p>
             <pre>200 → { "job_id": 1, "firmware_id": 1 }

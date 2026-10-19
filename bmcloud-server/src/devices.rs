@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 
 use uuid::Uuid;
 
+const DEVICE_ONLINE_TIMEOUT_SECS: i64 = 30;
+
 #[derive(Debug, Deserialize)]
 pub struct CreateDeviceRequest {
     pub name: String,
@@ -106,34 +108,6 @@ pub async fn device_create(
     ))
 }
 
-pub async fn device_me(
-    State(state): State<AppState>,
-    device: AuthDevice,
-) -> Result<Json<DeviceResponse>, AppError> {
-    let db = state.db.lock().unwrap();
-
-    let (state_text, updated_at): (String, i64) = db
-        .query_row(
-            "SELECT COALESCE(s.state, 'offline'), COALESCE(s.updated_at, d.created_at)
-             FROM devices d
-             LEFT JOIN device_state s ON s.device_id = d.id
-             WHERE d.id = ?1",
-            params![device.id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => AppError::NotFound,
-            other => other.into(),
-        })?;
-
-    Ok(Json(DeviceResponse {
-        id: device.id,
-        name: device.name,
-        state: state_text,
-        updated_at,
-    }))
-}
-
 pub async fn device_list(
     State(state): State<AppState>,
     user: AuthUser,
@@ -141,26 +115,32 @@ pub async fn device_list(
     let db = state.db.lock().unwrap();
 
     let mut stmt = db.prepare(
-        "SELECT d.id, d.name, COALESCE(s.state, 'offline'), COALESCE(s.updated_at, d.created_at)
-        FROM devices d
-        LEFT JOIN device_state s ON s.device_id = d.id
-        WHERE d.user_id = ?1
-        ORDER BY d.id",
+        "SELECT d.id, d.name,
+              CASE WHEN COALESCE(s.updated_at, d.created_at) <= ?2 THEN 'offline'
+              ELSE COALESCE(s.state, 'offline') END,
+              COALESCE(s.updated_at, d.created_at)
+              FROM devices d
+              LEFT JOIN device_state s ON s.device_id = d.id
+              WHERE d.user_id = ?1
+              ORDER BY d.id",
     )?;
 
     let devices = stmt
-        .query_map(params![user.id], |row| {
-            let id = row.get(0)?;
-            let name = row.get(1)?;
-            let state = row.get(2)?;
-            let updated_at = row.get(3)?;
-            Ok(DeviceResponse {
-                id,
-                name,
-                state,
-                updated_at,
-            })
-        })?
+        .query_map(
+            params![user.id, unix_now() - DEVICE_ONLINE_TIMEOUT_SECS],
+            |row| {
+                let id = row.get(0)?;
+                let name = row.get(1)?;
+                let state = row.get(2)?;
+                let updated_at = row.get(3)?;
+                Ok(DeviceResponse {
+                    id,
+                    name,
+                    state,
+                    updated_at,
+                })
+            },
+        )?
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Json(devices))
@@ -196,11 +176,14 @@ pub async fn device_get_state(
     let db = state.db.lock().unwrap();
 
     match db.query_row(
-        "SELECT d.name, COALESCE(s.state, 'offline'), COALESCE(s.updated_at, d.created_at)
-        FROM devices d
-        LEFT JOIN device_state s ON s.device_id = d.id
-        WHERE d.id = ?1 AND d.user_id = ?2",
-        params![device_id, user.id],
+        "SELECT d.name,
+              CASE WHEN COALESCE(s.updated_at, d.created_at) <= ?3 THEN 'offline'
+              ELSE COALESCE(s.state, 'offline') END,
+              COALESCE(s.updated_at, d.created_at)
+              FROM devices d
+              LEFT JOIN device_state s ON s.device_id = d.id
+              WHERE d.id = ?1 AND d.user_id = ?2",
+        params![device_id, user.id, unix_now() - DEVICE_ONLINE_TIMEOUT_SECS],
         |row| {
             Ok(DeviceResponse {
                 id: device_id,
@@ -260,4 +243,56 @@ pub async fn device_delete(
     }
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+
+    fn auth_user() -> AuthUser {
+        AuthUser {
+            id: 1,
+            email: "a@mail.ru".to_string(),
+        }
+    }
+
+    // What the owner's device list shows for a device that last reported
+    // `reported` at `updated_at`.
+    async fn displayed_state(reported: &str, updated_at: i64) -> String {
+        let state = AppState::new(db::init_memory().unwrap());
+        {
+            let conn = state.db.lock().unwrap();
+            conn.execute(
+                "INSERT INTO users (email, password_hash) VALUES ('a@mail.ru', 'x')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO devices (user_id, name, token, created_at) VALUES (1, 'dev', 'tok', 1)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO device_state (device_id, state, updated_at) VALUES (1, ?1, ?2)",
+                params![reported, updated_at],
+            )
+            .unwrap();
+        }
+
+        let devices = device_list(State(state), auth_user()).await.unwrap();
+        devices.0[0].state.clone()
+    }
+
+    #[tokio::test]
+    async fn device_not_heard_from_shows_offline() {
+        assert_eq!(displayed_state("online", unix_now() - 60).await, "offline");
+        assert_eq!(displayed_state("busy", unix_now() - 60).await, "offline");
+    }
+
+    #[tokio::test]
+    async fn fresh_report_keeps_its_state() {
+        assert_eq!(displayed_state("online", unix_now()).await, "online");
+        assert_eq!(displayed_state("busy", unix_now()).await, "busy");
+    }
 }

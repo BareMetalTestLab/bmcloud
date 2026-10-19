@@ -110,9 +110,15 @@ pub async fn device_next_job(
     let db = state.db.lock().unwrap();
     let now = unix_now();
 
-    // A claimed job whose device died mid-flash never reports back, so it is
-    // reaped here instead of flashing forever: straight to failed, no retry -
-    // the user re-flashes manually if needed.
+    db.execute(
+        "INSERT INTO device_state (device_id, state, updated_at)
+              VALUES (?1, 'online', ?2)
+              ON CONFLICT(device_id) DO UPDATE
+              SET state = CASE WHEN device_state.state = 'error' THEN 'error' ELSE 'online' END,
+              updated_at = excluded.updated_at",
+        params![device.id, now],
+    )?;
+
     db.execute(
         "UPDATE flash_jobs SET status = 'failed', updated_at = ?1,
               error = 'no report from device'
@@ -244,9 +250,7 @@ mod tests {
     use super::*;
     use crate::db;
 
-    // A job claimed by a device that went silent: status flashing, last
-    // updated long before the report timeout.
-    fn silent_device_job(conn: &rusqlite::Connection) {
+    fn user_and_device(conn: &rusqlite::Connection) {
         conn.execute(
             "INSERT INTO users (email, password_hash) VALUES ('a@mail.ru', 'x')",
             [],
@@ -257,6 +261,10 @@ mod tests {
             [],
         )
         .unwrap();
+    }
+
+    fn silent_device_job(conn: &rusqlite::Connection) {
+        user_and_device(conn);
         conn.execute(
             "INSERT INTO firmwares (user_id, name, size, data, created_at)
              VALUES (1, 'fw.bin', 1, X'01', 1)",
@@ -346,5 +354,56 @@ mod tests {
             })
             .unwrap();
         assert_eq!(status, "flashing");
+    }
+
+    #[tokio::test]
+    async fn poll_marks_the_device_online() {
+        let state = AppState::new(db::init_memory().unwrap());
+        {
+            let conn = state.db.lock().unwrap();
+            user_and_device(&conn);
+        }
+
+        // 404 = no work, but the poll still counts as a ping
+        let resp = device_next_job(State(state.clone()), test_device()).await;
+        assert_eq!(resp.unwrap_err(), AppError::NotFound);
+
+        let conn = state.db.lock().unwrap();
+        let (reported, updated_at): (String, i64) = conn
+            .query_row(
+                "SELECT state, updated_at FROM device_state WHERE device_id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(reported, "online");
+        assert!(updated_at >= unix_now() - 1);
+    }
+
+    #[tokio::test]
+    async fn poll_refreshes_but_keeps_error_state() {
+        let state = AppState::new(db::init_memory().unwrap());
+        {
+            let conn = state.db.lock().unwrap();
+            user_and_device(&conn);
+            conn.execute(
+                "INSERT INTO device_state (device_id, state, updated_at) VALUES (1, 'error', 1)",
+                [],
+            )
+            .unwrap();
+        }
+
+        let _ = device_next_job(State(state.clone()), test_device()).await;
+
+        let conn = state.db.lock().unwrap();
+        let (reported, updated_at): (String, i64) = conn
+            .query_row(
+                "SELECT state, updated_at FROM device_state WHERE device_id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(reported, "error"); // sticky until the device reports otherwise
+        assert!(updated_at >= unix_now() - 1);
     }
 }

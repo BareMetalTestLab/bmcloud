@@ -434,17 +434,15 @@ async fn device_can_authenticate_with_its_token() {
     let body: serde_json::Value = response.json().await.unwrap();
     let device_token = body["token"].as_str().unwrap().to_string();
 
-    // 2. The device introduces itself to the server
+    // 2. The device authenticates with its token (204 = report accepted)
     let response = client
-        .get(format!("{base}/device/me"))
+        .post(format!("{base}/device/state"))
         .header("Authorization", format!("Bearer {device_token}"))
+        .json(&json!({ "state": "online" }))
         .send()
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let body: serde_json::Value = response.json().await.unwrap();
-    assert_eq!(body["name"], "esp32-dev");
-    assert!(body["id"].is_i64());
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
 }
 
 #[tokio::test]
@@ -452,8 +450,9 @@ async fn unknown_device_token_returns_401() {
     let base = spawn_app().await;
 
     let response = reqwest::Client::new()
-        .get(format!("{base}/device/me"))
+        .post(format!("{base}/device/state"))
         .header("Authorization", "Bearer not-a-real-token")
+        .json(&json!({ "state": "online" }))
         .send()
         .await
         .unwrap();
@@ -469,8 +468,9 @@ async fn user_token_is_not_a_device_token() {
     let token = register_and_login(&client, &base, "anna@mail.ru").await;
 
     let response = reqwest::Client::new()
-        .get(format!("{base}/device/me"))
+        .post(format!("{base}/device/state"))
         .header("Authorization", format!("Bearer {token}"))
+        .json(&json!({ "state": "online" }))
         .send()
         .await
         .unwrap();
@@ -505,8 +505,9 @@ async fn deleted_device_token_stops_working() {
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
     let response = client
-        .get(format!("{base}/device/me"))
+        .post(format!("{base}/device/state"))
         .header("Authorization", format!("Bearer {device_token}"))
+        .json(&json!({ "state": "online" }))
         .send()
         .await
         .unwrap();
@@ -564,6 +565,51 @@ async fn device_reports_state_and_owner_reads_it() {
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["state"], "busy");
     assert!(body["updated_at"].is_i64());
+}
+
+#[tokio::test]
+async fn device_poll_marks_it_online_in_dashboard() {
+    let base = spawn_app().await;
+    let client = reqwest::Client::new();
+    let token = register_and_login(&client, &base, "anna@mail.ru").await;
+
+    let response = client
+        .post(format!("{base}/devices"))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&json!({ "name": "esp32-dev" }))
+        .send()
+        .await
+        .unwrap();
+    let body: serde_json::Value = response.json().await.unwrap();
+    let device_token = body["token"].as_str().unwrap().to_string();
+
+    // never polled yet - offline
+    let response = client
+        .get(format!("{base}/devices"))
+        .header("Authorization", format!("Bearer {token}"))
+        .send()
+        .await
+        .unwrap();
+    let devices: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(devices[0]["state"], "offline");
+
+    // the poll is a ping (404 = no work, but the device is alive)
+    let response = client
+        .get(format!("{base}/device/job"))
+        .header("Authorization", format!("Bearer {device_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let response = client
+        .get(format!("{base}/devices"))
+        .header("Authorization", format!("Bearer {token}"))
+        .send()
+        .await
+        .unwrap();
+    let devices: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(devices[0]["state"], "online");
 }
 
 #[tokio::test]
@@ -682,7 +728,7 @@ async fn empty_state_returns_400() {
 }
 
 #[tokio::test]
-async fn rename_returns_204_and_device_sees_new_name() {
+async fn rename_returns_204_and_owner_sees_new_name() {
     let base = spawn_app().await;
 
     let client = reqwest::Client::new();
@@ -699,7 +745,6 @@ async fn rename_returns_204_and_device_sees_new_name() {
         .unwrap();
     let body: serde_json::Value = response.json().await.unwrap();
     let device_id = body["device"]["id"].as_i64().unwrap();
-    let device_token = body["token"].as_str().unwrap().to_string();
 
     let response = client
         .patch(format!("{base}/device/{device_id}"))
@@ -711,15 +756,14 @@ async fn rename_returns_204_and_device_sees_new_name() {
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
     let response = client
-        .get(format!("{base}/device/me"))
-        .header("Authorization", format!("Bearer {device_token}"))
+        .get(format!("{base}/devices"))
+        .header("Authorization", format!("Bearer {token}"))
         .send()
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body: serde_json::Value = response.json().await.unwrap();
-    assert_eq!(body["name"], "anna-esp32-c5");
-    assert!(body["id"].is_i64());
+    let devices: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(devices[0]["name"], "anna-esp32-c5");
 }
 
 #[tokio::test]
