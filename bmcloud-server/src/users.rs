@@ -44,6 +44,11 @@ pub struct LoginResponse {
     pub token: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct ApiTokenResponse {
+    pub token: String,
+}
+
 impl RegisterRequest {
     pub fn validate(&self) -> Result<(), AppError> {
         if !(self.email.contains('@') && self.email.contains('.')) {
@@ -112,6 +117,7 @@ fn current_user(state: &AppState, headers: &HeaderMap) -> Result<AuthUser, AppEr
 
     let token = extract_session_token(headers)?;
 
+    // 1. a browser session - expires after SESSION_MAX_AGE
     match db.query_row(
         "SELECT u.id, u.email
              FROM sessions s
@@ -126,11 +132,28 @@ fn current_user(state: &AppState, headers: &HeaderMap) -> Result<AuthUser, AppEr
         },
     ) {
         Ok(user) => return Ok(user),
-        Err(rusqlite::Error::QueryReturnedNoRows) => {
-            return Err(AppError::Unauthorized);
-        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => {}
         Err(e) => return Err(e.into()),
-    };
+    }
+
+    // 2. the personal api token - never expires, dies only by regeneration
+    match db.query_row(
+        "SELECT u.id, u.email
+             FROM api_tokens t
+             JOIN users u ON u.id = t.user_id
+             WHERE t.token = ?1",
+        params![token],
+        |row| {
+            Ok(AuthUser {
+                id: row.get(0)?,
+                email: row.get(1)?,
+            })
+        },
+    ) {
+        Ok(user) => return Ok(user),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Err(AppError::Unauthorized),
+        Err(e) => Err(e.into()),
+    }
 }
 
 pub async fn register(
@@ -252,6 +275,25 @@ pub async fn me(user: AuthUser) -> Json<UserResponse> {
         id: user.id,
         email: user.email,
     })
+}
+
+/// (Re)generate the personal api token. One token per user: creating again
+/// replaces the old one, which stops working immediately.
+pub async fn api_token_create(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Result<(StatusCode, Json<ApiTokenResponse>), AppError> {
+    let token = format!("bm_{}", Uuid::new_v4());
+
+    let db = state.db.lock().unwrap();
+    db.execute(
+        "INSERT INTO api_tokens (user_id, token, created_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(user_id) DO UPDATE
+         SET token = excluded.token, created_at = excluded.created_at",
+        params![user.id, token, unix_now()],
+    )?;
+
+    Ok((StatusCode::CREATED, Json(ApiTokenResponse { token })))
 }
 
 #[cfg(test)]

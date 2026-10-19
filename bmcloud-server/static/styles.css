@@ -198,8 +198,9 @@ td {
 #auth-msg { min-height: 1.2em; }
 #auth-msg.err { color: var(--accent); }
 
-/* One-time device token box */
-#new-token {
+/* One-time token boxes (device token, personal api token) */
+#new-token,
+#api-token-box {
     margin: 0.75rem 0;
     padding: 0.75rem 1rem;
     background: var(--fill);
@@ -207,7 +208,8 @@ td {
     border-radius: 6px;
 }
 
-#new-token p {
+#new-token p,
+#api-token-box p {
     margin: 0.25rem 0;
 }
 
@@ -218,7 +220,8 @@ td {
     flex-wrap: wrap;
 }
 
-#new-token-value {
+#new-token-value,
+#api-token-value {
     padding: 0.35rem 0.6rem;
     background: #1a1a2e;
     border: 1px solid var(--border);
@@ -228,7 +231,8 @@ td {
     user-select: all;
 }
 
-#copy-msg {
+#copy-msg,
+#copy-api-msg {
     color: #2ecc71;
     font-size: 0.85rem;
 }

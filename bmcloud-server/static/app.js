@@ -13,6 +13,10 @@ const newTokenName = document.getElementById('new-token-name');
 const newTokenValue = document.getElementById('new-token-value');
 const copyTokenBtn = document.getElementById('copy-token-btn');
 const copyMsg = document.getElementById('copy-msg');
+const apiTokenBtn = document.getElementById('api-token-btn');
+const apiTokenBox = document.getElementById('api-token-box');
+const apiTokenValue = document.getElementById('api-token-value');
+const apiCopyMsg = document.getElementById('copy-api-msg');
 const jobsPanel = document.getElementById('jobs-panel');
 const jobsTable = document.getElementById('jobs');
 const jobsBody = document.getElementById('jobs-body');
@@ -106,6 +110,8 @@ async function doLogout() {
     jobsMsg.textContent = '';
     firmwareFileInput.value = '';
     renderFileName();
+    apiTokenBox.hidden = true;
+    apiTokenValue.textContent = '';
 
     clearTimeout(pollTimer);
     pollTimer = null;
@@ -367,26 +373,52 @@ function renderFileName() {
     firmwareFileName.textContent = file ? file.name + ' · ' + formatSize(file.size) : 'no file chosen';
 }
 
-let copyTimer = null;
-
-async function copyToken() {
-    const value = newTokenValue.textContent;
-    let ok = false;
+async function copyTextToClipboard(value) {
     try {
         await navigator.clipboard.writeText(value);
-        ok = true;
+        return true;
     } catch (e) {
         // clipboard API needs a secure context (https / localhost) - fall back for plain http
         const ta = document.createElement('textarea');
         ta.value = value;
         document.body.appendChild(ta);
         ta.select();
-        ok = document.execCommand('copy');
+        const ok = document.execCommand('copy');
         ta.remove();
+        return ok;
     }
-    copyMsg.textContent = ok ? 'copied!' : 'copy failed - select it manually';
-    clearTimeout(copyTimer);
-    copyTimer = setTimeout(() => { copyMsg.textContent = ''; }, 2000);
+}
+
+function showCopyResult(msgEl, ok) {
+    msgEl.textContent = ok ? 'copied!' : 'copy failed - select it manually';
+    clearTimeout(msgEl.copyTimer);
+    msgEl.copyTimer = setTimeout(() => { msgEl.textContent = ''; }, 2000);
+}
+
+async function copyToken() {
+    showCopyResult(copyMsg, await copyTextToClipboard(newTokenValue.textContent));
+}
+
+async function copyApiToken() {
+    showCopyResult(apiCopyMsg, await copyTextToClipboard(apiTokenValue.textContent));
+}
+
+async function createApiToken() {
+    apiTokenBtn.disabled = true;
+    try {
+        const resp = await api('/api-token', 'POST');
+        if (resp.status === 201) {
+            const body = await resp.json(); // the token is never shown again
+            apiTokenValue.textContent = body.token;
+            apiTokenBox.hidden = false;
+            return;
+        }
+        msg.textContent = 'Failed to generate API token';
+    } catch (e) {
+        msg.textContent = 'Server unreachable';
+    } finally {
+        apiTokenBtn.disabled = false;
+    }
 }
 
 document.getElementById('login-btn').addEventListener('click', doLogin);
@@ -394,6 +426,8 @@ document.getElementById('register-btn').addEventListener('click', doRegister);
 document.getElementById('logout-btn').addEventListener('click', doLogout);
 addDeviceBtn.addEventListener('click', createDevice);
 copyTokenBtn.addEventListener('click', copyToken);
+apiTokenBtn.addEventListener('click', createApiToken);
+document.getElementById('copy-api-token-btn').addEventListener('click', copyApiToken);
 flashBtn.addEventListener('click', createJob);
 firmwareFileInput.addEventListener('change', renderFileName);
 renderFileName();

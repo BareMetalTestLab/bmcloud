@@ -23,8 +23,9 @@
         </p>
         <p>
             <b>User requests</b> authenticate with the <code>bmcloud_session</code> cookie set by
-            <code>POST /login</code> or with <code>Authorization: Bearer &lt;token&gt;</code>.
-            Sessions live for 7 days.<br>
+            <code>POST /login</code> or with <code>Authorization: Bearer &lt;token&gt;</code>
+            (a login session or the personal API token from <code>POST /api-token</code>).
+            Sessions live for 7 days, the API token does not expire.<br>
             <b>Device requests</b> authenticate with the token shown once at creation:
             <code>Authorization: Bearer &lt;device_token&gt;</code>.
         </p>
@@ -61,6 +62,16 @@
         <div class="endpoint">
             <p class="ep-head"><span class="method m-get">GET</span><code>/me</code> <span class="auth-tag">user</span></p>
             <pre>200 → { "id": 1, "email": "anna@mail.ru" }</pre>
+        </div>
+
+        <div class="endpoint">
+            <p class="ep-head"><span class="method m-post">POST</span><code>/api-token</code> <span class="auth-tag">user</span></p>
+            <p>Generate the personal API token for scripts and CI - it never expires.
+                Shown only this once; generating again replaces the old token,
+                which stops working immediately.</p>
+            <pre>201 → { "token": "bm_9f3a…" }
+
+GET /me  with "Authorization: Bearer bm_9f3a…"  → 200</pre>
         </div>
 
         <h3>Devices - owner side</h3>

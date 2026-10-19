@@ -34,6 +34,15 @@ fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
     )?;
 
     conn.execute(
+        "CREATE TABLE IF NOT EXISTS api_tokens (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            token TEXT NOT NULL UNIQUE,
+            created_at INTEGER NOT NULL
+        )",
+        [],
+    )?;
+
+    conn.execute(
         "CREATE TABLE IF NOT EXISTS devices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

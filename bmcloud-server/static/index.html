@@ -31,6 +31,17 @@
             <button id="logout-btn">Logout</button>
         </p>
         <p>
+            <button id="api-token-btn">Generate API token</button>
+        </p>
+        <div id="api-token-box" hidden>
+            <p>Personal API token - shown only once, copy it now. Generating a new one replaces the old.</p>
+            <p class="token-row">
+                <code id="api-token-value"></code>
+                <button id="copy-api-token-btn">Copy</button>
+                <span id="copy-api-msg"></span>
+            </p>
+        </div>
+        <p>
             <input id="new-device-name" placeholder="new device name" size="30">
             <button id="add-device-btn">Add device</button>
         </p>

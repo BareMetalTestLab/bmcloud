@@ -871,6 +871,74 @@ async fn cookie_logout_works_without_bearer() {
 }
 
 #[tokio::test]
+async fn personal_api_token_authenticates_and_regenerates() {
+    let base = spawn_app().await;
+    let client = reqwest::Client::new();
+    let token = register_and_login(&client, &base, "anna@mail.ru").await;
+
+    // generate
+    let response = client
+        .post(format!("{base}/api-token"))
+        .header("Authorization", format!("Bearer {token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body: serde_json::Value = response.json().await.unwrap();
+    let api_token = body["token"].as_str().unwrap().to_string();
+    assert!(api_token.starts_with("bm_"));
+
+    // authenticates /me on its own
+    let response = client
+        .get(format!("{base}/me"))
+        .header("Authorization", format!("Bearer {api_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // regenerate (with the api token itself): old dies, new works
+    let response = client
+        .post(format!("{base}/api-token"))
+        .header("Authorization", format!("Bearer {api_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body: serde_json::Value = response.json().await.unwrap();
+    let new_token = body["token"].as_str().unwrap().to_string();
+    assert_ne!(new_token, api_token);
+
+    let response = client
+        .get(format!("{base}/me"))
+        .header("Authorization", format!("Bearer {api_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let response = client
+        .get(format!("{base}/me"))
+        .header("Authorization", format!("Bearer {new_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn api_token_generation_requires_authentication() {
+    let base = spawn_app().await;
+
+    let response = reqwest::Client::new()
+        .post(format!("{base}/api-token"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn firmware_travels_to_device_and_back() {
     let base = spawn_app().await;
     let client = reqwest::Client::new();

@@ -21,7 +21,7 @@ use firmwares::{
     upload_firmware_and_create_job,
 };
 
-use users::{login, logout, me, register};
+use users::{api_token_create, login, logout, me, register};
 
 use state::AppState;
 use tower_http::services::ServeDir;
@@ -32,6 +32,7 @@ pub fn router(state: AppState) -> Router {
         .route("/login", post(login))
         .route("/logout", post(logout))
         .route("/me", get(me))
+        .route("/api-token", post(api_token_create))
         .route("/jobs", get(list_jobs))
         .route("/devices", get(device_list).post(device_create))
         .route("/device/{id}", delete(device_delete).patch(device_rename))
